@@ -1,0 +1,430 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    background-color: #090b0e;
+    color: #e6dac9;
+  }
+}
+
+/* Condensed industrial military display matching card titles (АРМИЯ, ДЕМОН) */
+.font-cinzel,
+.font-display {
+  font-family: 'Oswald', 'Plus Jakarta Sans', system-ui, sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.font-led {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Weathered brushed gunmetal plate matching card outer armor frames */
+.steel-plate {
+  background-color: #161a1f;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0.015) 14%,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(124, 65, 36, 0.08) 100%
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.012) 0px,
+      rgba(255, 255, 255, 0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    linear-gradient(180deg, #252b32 0%, #171b20 55%, #101317 100%);
+  border: 1px solid #3c4550;
+  box-shadow:
+    inset 0 1px 0 rgba(235, 224, 210, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.72),
+    0 16px 40px rgba(0, 0, 0, 0.78);
+}
+
+/* Brushed gunmetal HUD command bar */
+.steel-bar {
+  background-color: #14181d;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0.01) 35%,
+      rgba(0, 0, 0, 0.25) 100%
+    ),
+    linear-gradient(90deg, rgba(16, 20, 25, 0.94) 0%, rgba(26, 31, 38, 0.94) 50%, rgba(16, 20, 25, 0.94) 100%);
+  border: 1px solid #38414b;
+  box-shadow:
+    inset 0 1px 0 rgba(229, 218, 203, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.7),
+    0 4px 16px rgba(0, 0, 0, 0.65);
+}
+
+/* Recessed smoked dark iron well matching the bottom description plate of every card */
+.steel-recessed {
+  background-color: #0b0d10;
+  background-image: linear-gradient(180deg, #08090c 0%, #0e1115 55%, #0a0c0f 100%);
+  border: 1px solid #2a313a;
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.88),
+    inset 0 -1px 0 rgba(229, 218, 203, 0.06);
+}
+
+/* Recessed glowing red LED digital readout matching card Rank & Initiative displays */
+.led-readout {
+  background: linear-gradient(180deg, #13090a 0%, #090506 60%, #110809 100%);
+  border: 1px solid #483b3e;
+  box-shadow:
+    inset 0 1px 4px rgba(0, 0, 0, 0.95),
+    inset 0 0 8px rgba(255, 56, 46, 0.14),
+    0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #ff4a3f;
+  text-shadow:
+    0 0 7px rgba(255, 58, 48, 0.82),
+    0 0 2px rgba(255, 160, 148, 0.6);
+}
+
+/* Custom dark iron scrollbar for scrollable log & rules panels */
+.steel-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #3f4853 #0b0d10;
+}
+.steel-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.steel-scrollbar::-webkit-scrollbar-track {
+  background: #0a0c0f;
+}
+.steel-scrollbar::-webkit-scrollbar-thumb {
+  background: #3b444e;
+  border-radius: 2px;
+  border: 1px solid #161a1f;
+}
+.steel-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #535f6d;
+}
+
+.btn-chamfer {
+  clip-path: polygon(
+    8px 0%,
+    calc(100% - 8px) 0%,
+    100% 8px,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    8px 100%,
+    0% calc(100% - 8px),
+    0% 8px
+  );
+}
+
+.btn-chamfer-sm {
+  clip-path: polygon(
+    5px 0%,
+    calc(100% - 5px) 0%,
+    100% 5px,
+    100% calc(100% - 5px),
+    calc(100% - 5px) 100%,
+    5px 100%,
+    0% calc(100% - 5px),
+    0% 5px
+  );
+}
+
+@keyframes arcAttackStrike {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+  26% {
+    transform: translate3d(var(--arc-x, 0px), var(--arc-y, -40px), 0) scale(1.1) rotate(var(--arc-tilt, -6deg));
+  }
+  46% {
+    transform: translate3d(var(--strike-x, 0px), var(--strike-y, -110px), 0) scale(1.16) rotate(calc(var(--arc-tilt, 0deg) * -0.35));
+  }
+  58% {
+    transform: translate3d(calc(var(--strike-x, 0px) * 0.88), calc(var(--strike-y, -110px) * 0.88), 0) scale(1.08) rotate(0deg);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes centerCastBurst {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  25% {
+    transform: translate3d(var(--center-x, 0px), var(--center-y, 0px), 0) scale(1.15);
+  }
+  65% {
+    transform: translate3d(var(--center-x, 0px), var(--center-y, 0px), 0) scale(1.18);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes shockwaveExpand {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  25% {
+    opacity: 0.95;
+    transform: scale(0.65);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.5);
+  }
+}
+
+@keyframes raysBurst {
+  0% {
+    opacity: 0;
+    transform: scale(0.25) rotate(0deg);
+  }
+  28% {
+    opacity: 0.95;
+    transform: scale(1.05) rotate(10deg);
+  }
+  68% {
+    opacity: 0.85;
+    transform: scale(1.25) rotate(22deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5) rotate(32deg);
+  }
+}
+
+@keyframes targetImpactSlash {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-18deg);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.15) rotate(4deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45) rotate(12deg);
+  }
+}
+
+@keyframes cardHitShake {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  20% {
+    transform: translate3d(-7px, 0, 0) rotate(-2.5deg) scale(1.02);
+  }
+  40% {
+    transform: translate3d(7px, 0, 0) rotate(2.5deg) scale(0.98);
+  }
+  60% {
+    transform: translate3d(-5px, 0, 0) rotate(-1.5deg);
+  }
+  80% {
+    transform: translate3d(4px, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.97);
+  }
+}
+
+@keyframes cardShieldPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  40% {
+    opacity: 0.95;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
+  }
+}
+
+@keyframes cardDealIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes turnBannerSweep {
+  0% {
+    opacity: 0;
+    transform: translate3d(-28px, 0, 0) scale(0.92);
+  }
+  16% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.03);
+  }
+  24% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(28px, 0, 0) scale(0.96);
+  }
+}
+
+.animate-arc-attack {
+  animation: arcAttackStrike 760ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-center-cast {
+  animation: centerCastBurst 820ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-shockwave {
+  animation: shockwaveExpand 760ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-rays-burst {
+  animation: raysBurst 820ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-impact-slash {
+  animation: targetImpactSlash 480ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-card-hit {
+  animation: cardHitShake 420ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-shield-pulse {
+  animation: cardShieldPulse 620ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-card-deal {
+  animation: cardDealIn 280ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@keyframes cardInspectIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-turn-banner {
+  animation: turnBannerSweep 1500ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-card-inspect {
+  animation: cardInspectIn 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes stageBeaconRing {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.92);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+
+@keyframes stageBeaconPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+.animate-stage-beacon-ring {
+  animation: stageBeaconRing 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.animate-stage-beacon-pulse {
+  animation: stageBeaconPulse 1.9s ease-in-out infinite;
+}
+
+@keyframes menuBgDrift {
+  0% {
+    transform: translate3d(0%, 0%, 0) scale(1.08);
+  }
+  20% {
+    transform: translate3d(1.7%, -1.3%, 0) scale(1.1);
+  }
+  42% {
+    transform: translate3d(-1.4%, -1.6%, 0) scale(1.09);
+  }
+  64% {
+    transform: translate3d(-1.9%, 1.2%, 0) scale(1.11);
+  }
+  84% {
+    transform: translate3d(1.3%, 1.5%, 0) scale(1.09);
+  }
+  100% {
+    transform: translate3d(0%, 0%, 0) scale(1.08);
+  }
+}
+
+.animate-menu-bg-drift {
+  animation: menuBgDrift 26s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-arc-attack,
+  .animate-center-cast,
+  .animate-shockwave,
+  .animate-rays-burst,
+  .animate-impact-slash,
+  .animate-card-hit,
+  .animate-shield-pulse,
+  .animate-card-deal,
+  .animate-turn-banner,
+  .animate-card-inspect,
+  .animate-stage-beacon-ring,
+  .animate-stage-beacon-pulse,
+  .animate-menu-bg-drift {
+    animation: none !important;
+  }
+}
