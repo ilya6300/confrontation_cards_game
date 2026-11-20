@@ -16,8 +16,15 @@
 
 **Сайт:** https://ilya6300.github.io/confrontation_cards_game/
 
-Первый раз в репозитории: **Settings → Pages → Build and deployment → Source: GitHub Actions**.  
-На бесплатном плане репозиторий должен быть **public**, иначе Pages не включится.
+Первый раз в репозитории (обязательно, иначе отдаётся сырой `index.html` из `main`):
+
+1. Репозиторий **public** (на бесплатном плане).
+2. **Settings → Pages → Build and deployment**
+3. **Source: Deploy from a branch** (не корень `main`!)
+4. **Branch: `gh-pages`**, папка **`/ (root)`** — ветку создаёт workflow после первого успешного запуска.
+5. **Actions** → дождаться **Deploy GitHub Pages** (после push в `main` или Run workflow).
+
+Если выбран `main` + `/`, сайт ломается: в браузере будет `/src/main.tsx` вместо собранного JS.
 
 Локальная проверка той же сборки:
 
