@@ -17,10 +17,12 @@ export type EffectAction =
   | 'disable'
   | 'reduce_rank'
   | 'revive'
+  | 'reanimate_battle'
   | 'evacuate'
   | 'rewind'
   | 'reveal'
   | 'replace'
+  | 'summon'
   | 'cancel_ability';
 
 export interface TargetFilter {
@@ -33,7 +35,7 @@ export interface TargetFilter {
   cardIds?: string[];
   excludeCardIds?: string[];
   limit?: number; // e.g. 1
-  priority?: 'highest_rank' | 'lowest_rank' | 'first';
+  priority?: 'highest_rank' | 'lowest_rank' | 'highest_initiative' | 'first';
 }
 
 export interface CardEffect {
@@ -46,6 +48,11 @@ export interface CardEffect {
   reviveFilter?: TargetFilter;
   destroySelf?: boolean;
   allowSelfReplace?: boolean;
+  replaceFilter?: {
+    types?: CardType[];
+  };
+  summonCardIds?: string[];
+  returnSelfToHand?: boolean;
   description: string;
 }
 
@@ -62,6 +69,20 @@ export interface CardDefinition {
   image: string; // Card front artwork PNG
   isSingleUse?: boolean;
   isHiddenSpell?: boolean; // If true, never placed into starting hand; summoned/swapped dynamically
+  hiddenSummonNote?: string; // Label explaining how this hidden card enters play
+}
+
+export interface AppliedProtection {
+  threat: CardType;
+  sourceInstanceId: string;
+  sourceCardName: string;
+  sourceIsCreature: boolean;
+}
+
+export interface AppliedBlock {
+  sourceInstanceId: string;
+  sourceCardName: string;
+  sourceIsCreature: boolean;
 }
 
 export interface BattleCard {
@@ -76,6 +97,8 @@ export interface BattleCard {
   isCancelled: boolean;
   isEvacuated?: boolean;
   protectedAgainst: CardType[];
+  protectionSources?: AppliedProtection[];
+  cancelSources?: AppliedBlock[];
   hasActed: boolean;
   revealed: boolean;
 }
@@ -101,6 +124,7 @@ export type GameMode = 'bot' | 'pvp_local';
 
 export type GamePhase =
   | 'menu'
+  | 'cards_catalog'
   | 'campaign_select'
   | 'campaign_map'
   | 'p1_select'
@@ -128,6 +152,14 @@ export interface PlayerState {
 
 export type DefeatReason = 'empty_hand' | 'turn_limit' | 'surrender';
 
+export interface BotMemory {
+  lastSchemeId?: string;
+  recentSchemeIds: string[];
+  lastBotCardIds: string[];
+  enemyPlayedCounts: Record<string, number>;
+  enemyRecentRounds: string[][];
+}
+
 export interface GameState {
   mode: GameMode;
   phase: GamePhase;
@@ -139,6 +171,11 @@ export interface GameState {
   battleLog: LogEntry[];
   winner: 'player1' | 'player2' | null;
   defeatReason?: DefeatReason;
+  finalCardCounts?: {
+    player1: number;
+    player2: number;
+  };
   historyRoundsCount: number;
   campaign?: CampaignContext;
+  botMemory?: BotMemory;
 }

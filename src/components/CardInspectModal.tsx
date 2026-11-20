@@ -29,6 +29,7 @@ export interface CardInspectModalState {
   ownerId?: 'player1' | 'player2';
   ownerLabel?: string;
   battleStatus?: InspectBattleStatus;
+  showRuleDetails?: boolean;
 }
 
 interface CardInspectModalProps {
@@ -46,6 +47,14 @@ const THREAT_LABELS: Record<CardType, string> = {
   technology: 'Техники',
   incorporeal: 'Бесплотных',
   creature: 'Существ',
+};
+
+const TYPE_LABELS_SINGULAR: Record<CardType, string> = {
+  magic: 'Заклинание',
+  virus: 'Вирус',
+  technology: 'Техника',
+  incorporeal: 'Бесплотное',
+  creature: 'Существо',
 };
 
 export const CardInspectModal: React.FC<CardInspectModalProps> = ({
@@ -69,7 +78,7 @@ export const CardInspectModal: React.FC<CardInspectModalProps> = ({
 
   if (!inspectState) return null;
 
-  const { card, mode, ownerLabel, battleStatus } = inspectState;
+  const { card, mode, ownerLabel, battleStatus, showRuleDetails } = inspectState;
   const frontImage = getCardById(card.id)?.image ?? card.image;
   const isHandSelect = mode === 'hand_select';
   const limitReached = !isSelected && selectedCount >= maxSelectable;
@@ -171,6 +180,8 @@ export const CardInspectModal: React.FC<CardInspectModalProps> = ({
             className={`${
               isHandSelect
                 ? 'max-h-[64dvh] sm:max-h-[70dvh] max-w-[90vw]'
+                : showRuleDetails
+                ? 'max-h-[58dvh] sm:max-h-[64dvh] max-w-[90vw]'
                 : 'max-h-[76dvh] sm:max-h-[82dvh] max-w-[92vw]'
             } w-auto h-auto object-contain block select-none pointer-events-none ${
               isHandSelect && isSelected
@@ -185,7 +196,7 @@ export const CardInspectModal: React.FC<CardInspectModalProps> = ({
           )}
         </div>
 
-        {/* Bottom Prompt / Action Buttons — Bolted Gunmetal Console */}
+        {/* Bottom Prompt / Rule Details / Action Buttons — Bolted Gunmetal Console */}
         {isHandSelect ? (
           <div className="relative w-full max-w-md px-5 py-3.5 rounded-[6px] steel-plate flex flex-col items-center gap-2.5 text-center">
             <CornerRivets inset="sm" />
@@ -229,6 +240,22 @@ export const CardInspectModal: React.FC<CardInspectModalProps> = ({
                 <span>Нет</span>
               </GameButton>
             </div>
+          </div>
+        ) : showRuleDetails ? (
+          <div className="relative w-full max-w-md px-4 py-3 rounded-[6px] steel-plate flex flex-col items-center gap-2 text-center">
+            <CornerRivets inset="sm" />
+            <div className="font-led text-[11px] text-[#9eb0bd] uppercase tracking-[0.08em]">
+              {TYPE_LABELS_SINGULAR[card.type]} · Ранг {card.rank} · ⚡{card.initiative}
+              {card.isSingleUse ? ' · Одноразовая' : ''}
+              {card.isHiddenSpell ? ' · Скрытая' : ''}
+            </div>
+            <p className="text-xs sm:text-sm text-[#e5ddd1] leading-snug">
+              {card.description}
+            </p>
+            <GameButton variant="secondary" size="sm" onClick={onClose}>
+              <X className="w-3.5 h-3.5" />
+              <span>Закрыть</span>
+            </GameButton>
           </div>
         ) : (
           <GameButton variant="secondary" size="md" onClick={onClose}>

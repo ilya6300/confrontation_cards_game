@@ -325,6 +325,136 @@ export const CardIcon: React.FC<CardIconProps> = ({ name, className = 'w-16 h-16
         </svg>
       );
 
+    case 'drone_squad':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <rect x="40" y="42" width="20" height="16" rx="4" />
+          <line x1="22" y1="30" x2="78" y2="70" stroke={color} strokeWidth="5" />
+          <line x1="78" y1="30" x2="22" y2="70" stroke={color} strokeWidth="5" />
+          <circle cx="22" cy="30" r="10" fill="none" stroke="#38bdf8" strokeWidth="4" />
+          <circle cx="78" cy="30" r="10" fill="none" stroke="#38bdf8" strokeWidth="4" />
+          <circle cx="22" cy="70" r="10" fill="none" stroke="#38bdf8" strokeWidth="4" />
+          <circle cx="78" cy="70" r="10" fill="none" stroke="#38bdf8" strokeWidth="4" />
+          <circle cx="50" cy="50" r="4" fill="#ef4444" />
+        </svg>
+      );
+
+    case 'reserves':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <polygon points="50,14 82,28 82,58 50,86 18,58 18,28" fill="none" stroke={color} strokeWidth="5" />
+          <polygon points="32,46 50,32 68,46 68,56 50,42 32,56" fill="#38bdf8" />
+          <polygon points="32,60 50,46 68,60 68,70 50,56 32,70" fill="#38bdf8" />
+        </svg>
+      );
+
+    case 'call_reserves':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <rect x="44" y="48" width="12" height="38" rx="3" />
+          <circle cx="50" cy="38" r="8" fill="#38bdf8" />
+          <path d="M32 28 C 22 36, 22 50, 32 58" fill="none" stroke="#38bdf8" strokeWidth="4" strokeLinecap="round" />
+          <path d="M68 28 C 78 36, 78 50, 68 58" fill="none" stroke="#38bdf8" strokeWidth="4" strokeLinecap="round" />
+          <path d="M22 20 C 10 32, 10 54, 22 66" fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" />
+          <path d="M78 20 C 90 32, 90 54, 78 66" fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'cold_calculation':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <circle cx="50" cy="50" r="34" fill="none" stroke="#38bdf8" strokeWidth="4" />
+          <polygon points="50,22 64,46 50,42 36,46" fill="#38bdf8" />
+          <path d="M28 62 L50 76 L72 62" fill="none" stroke={color} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="50" cy="50" r="5" fill="#e0f2fe" />
+        </svg>
+      );
+
+    case 'medic':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <path d="M50 12 C 75 12, 85 24, 85 52 C 85 76, 50 90, 50 90 C 50 90, 15 76, 15 52 C 15 24, 25 12, 50 12 Z" fill="none" stroke={color} strokeWidth="4" />
+          <rect x="44" y="30" width="12" height="40" rx="2" fill="#10b981" />
+          <rect x="30" y="44" width="40" height="12" rx="2" fill="#10b981" />
+        </svg>
+      );
+
+    case 'prayer':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <circle cx="50" cy="40" r="22" fill="none" stroke="#fbbf24" strokeWidth="4" />
+          <line x1="50" y1="10" x2="50" y2="88" stroke="#fef08a" strokeWidth="6" strokeLinecap="round" />
+          <line x1="26" y1="40" x2="74" y2="40" stroke="#fef08a" strokeWidth="6" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'parasite':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <ellipse cx="50" cy="50" rx="22" ry="28" />
+          <path d="M28 40 L12 28 M28 52 L10 52 M28 64 L14 78 M72 40 L88 28 M72 52 L90 52 M72 64 L86 78" stroke={color} strokeWidth="5" strokeLinecap="round" />
+          <circle cx="42" cy="40" r="4" fill="#ef4444" />
+          <circle cx="58" cy="40" r="4" fill="#ef4444" />
+          <circle cx="50" cy="32" r="3" fill="#84cc16" />
+        </svg>
+      );
+
+    case 'imp':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <path d="M26 24 L38 40 L62 40 L74 24 L70 52 C 70 72, 58 84, 50 88 C 42 84, 30 72, 30 52 Z" />
+          <polygon points="38,52 46,56 38,60" fill="#f97316" />
+          <polygon points="62,52 54,56 62,60" fill="#f97316" />
+        </svg>
+      );
+
+    case 'evil_spirit':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <path d="M50 14 C 30 14, 22 36, 26 58 C 28 72, 20 82, 34 86 C 44 88, 52 76, 62 84 C 74 90, 78 72, 74 54 C 72 34, 68 14, 50 14 Z" />
+          <circle cx="40" cy="42" r="5" fill="#ec4899" />
+          <circle cx="60" cy="42" r="5" fill="#ec4899" />
+          <path d="M40 58 Q 50 68, 60 58" fill="none" stroke="#ec4899" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'conjurer':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <circle cx="50" cy="50" r="34" fill="none" stroke="#a855f7" strokeWidth="4" strokeDasharray="8 5" />
+          <polygon points="50,18 68,52 50,82 32,52" fill="none" stroke={color} strokeWidth="4" />
+          <circle cx="50" cy="50" r="10" fill="#ec4899" />
+        </svg>
+      );
+
+    case 'dark_sapper':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <circle cx="48" cy="58" r="24" />
+          <rect x="42" y="26" width="12" height="12" rx="2" />
+          <path d="M54 28 C 66 22, 72 16, 78 22" fill="none" stroke="#f97316" strokeWidth="4" strokeLinecap="round" />
+          <circle cx="80" cy="24" r="6" fill="#ef4444" />
+        </svg>
+      );
+
+    case 'ball_lightning':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <circle cx="50" cy="50" r="24" fill="#a855f7" />
+          <circle cx="50" cy="50" r="12" fill="#f3e8ff" />
+          <path d="M50 10 L46 24 M50 90 L54 76 M10 50 L24 46 M90 50 L76 54 M20 20 L32 32 M80 80 L68 68 M80 20 L68 32 M20 80 L32 68" stroke="#ec4899" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+      );
+
+    case 'gargoyle':
+      return (
+        <svg viewBox="0 0 100 100" className={className} fill={color}>
+          <path d="M50 32 L14 18 L24 54 L40 50 L50 86 L60 50 L76 54 L86 18 Z" />
+          <circle cx="44" cy="44" r="3.5" fill="#ef4444" />
+          <circle cx="56" cy="44" r="3.5" fill="#ef4444" />
+        </svg>
+      );
+
     default:
       return (
         <svg viewBox="0 0 100 100" className={className} fill={color}>

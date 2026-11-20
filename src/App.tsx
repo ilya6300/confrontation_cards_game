@@ -16,8 +16,11 @@ import {
 import { getCardsBySide, getCardById } from './data/cards';
 import { DEFAULT_GAME_BACKGROUND } from './data/backgrounds';
 import {
+  CampaignDialogueLine,
   CampaignProgress,
   CampaignStageConfig,
+  RESISTANCE_FINALE_DIALOGUE,
+  RESISTANCE_PROLOGUE_DIALOGUE,
   getCampaignStage,
   getCampaignStagesBySide,
   loadCampaignProgress,
@@ -30,18 +33,35 @@ import {
   finalizeBattle,
   createLogEntry,
   matchesFilter,
+  getAvailableSummonOptions,
 } from './engine/effectProcessor';
 import {
-  selectBotCards,
+  selectBotDecision,
+  createInitialBotMemory,
+  recordBotDecision,
+  recordEnemyPlayedCards,
   selectBotSpellCard,
+  selectBotColdCalculationCard,
+  selectBotConjurerSummon,
   selectBotReviveCard,
   selectBotEvacuateCard,
 } from './engine/botAi';
-import { CardView } from './components/CardView';
+import { CardView, CombatCallout } from './components/CardView';
+import {
+  BattleVfxLayer,
+  BattlefieldAmbientLayer,
+  ActiveVfxData,
+  EffectTheme,
+  VFX_THEME_PALETTE,
+  getVfxArchetypeForCard,
+  isHeavyShakeCard,
+} from './components/BattleVfxLayer';
 import { BattleLog } from './components/BattleLog';
 import { MainMenu } from './components/MainMenu';
+import { CardsCatalog } from './components/CardsCatalog';
 import { CampaignFactionSelect } from './components/CampaignFactionSelect';
 import { CampaignMap } from './components/CampaignMap';
+import { CampaignCutsceneOverlay } from './components/CampaignCutsceneOverlay';
 import { RulesModal } from './components/RulesModal';
 import { GameOverModal } from './components/GameOverModal';
 import { PassDeviceScreen } from './components/PassDeviceScreen';
@@ -50,24 +70,24 @@ import { DiscardViewerModal } from './components/DiscardViewerModal';
 import { CardInspectModal, CardInspectModalState } from './components/CardInspectModal';
 import { HandZone } from './components/HandZone';
 import { GameButton } from './components/GameButton';
+import { AudioControlsButton } from './components/AudioControlsButton';
 import { CornerRivets, LedCounter, RiftDivider } from './components/TacticalChrome';
-import { sound } from './utils/sound';
+import { AmbientScene, sound } from './utils/sound';
+import { voiceService } from './utils/voiceService';
 import {
   Swords,
   Play,
   RotateCcw,
-  Volume2,
-  VolumeX,
   BookOpen,
   FastForward,
   ScrollText,
   Flag,
+  X,
+  Gauge,
 } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY = 'card_game_state_save_v4';
 const MAX_BATTLE_ROUNDS = 10;
-
-type EffectTheme = 'fire' | 'emerald' | 'arcane' | 'toxic' | 'sky' | 'crimson';
 
 interface ActiveTurnAnimation {
   instanceId: string;
@@ -94,70 +114,44 @@ const CENTER_CAST_CARD_IDS = new Set([
   'natural_disaster',
   'terrible_disease',
   'plague',
+  'drone_squad',
+  'call_reserves',
+  'cold_calculation',
+  'medic',
+  'prayer',
+  'conjurer',
+  'ball_lightning',
 ]);
-
-const THEME_COLORS: Record<
-  EffectTheme,
-  { primary: string; secondary: string; core: string; glow: string }
-> = {
-  fire: {
-    primary: '#f97316',
-    secondary: '#ef4444',
-    core: '#fef08a',
-    glow: 'rgba(249, 115, 22, 0.55)',
-  },
-  emerald: {
-    primary: '#10b981',
-    secondary: '#34d399',
-    core: '#d1fae5',
-    glow: 'rgba(16, 185, 129, 0.5)',
-  },
-  arcane: {
-    primary: '#a855f7',
-    secondary: '#ec4899',
-    core: '#f3e8ff',
-    glow: 'rgba(168, 85, 247, 0.55)',
-  },
-  toxic: {
-    primary: '#84cc16',
-    secondary: '#a855f7',
-    core: '#ecfccb',
-    glow: 'rgba(132, 204, 22, 0.5)',
-  },
-  sky: {
-    primary: '#06b6d4',
-    secondary: '#38bdf8',
-    core: '#e0f2fe',
-    glow: 'rgba(56, 189, 248, 0.55)',
-  },
-  crimson: {
-    primary: '#ef4444',
-    secondary: '#f43f5e',
-    core: '#fecdd3',
-    glow: 'rgba(239, 68, 68, 0.55)',
-  },
-};
 
 function getEffectThemeForCard(card: CardDefinition): EffectTheme {
   switch (card.id) {
     case 'engineer':
     case 'scientist':
     case 'progressive_science':
+    case 'medic':
       return 'emerald';
     case 'seer':
     case 'artillerist':
     case 'artillery':
     case 'natural_disaster':
+    case 'prayer':
       return 'fire';
     case 'evacuation':
     case 'abnormal_lightning':
+    case 'drone_squad':
+    case 'call_reserves':
+    case 'cold_calculation':
       return 'sky';
     case 'hidden_virus':
     case 'terrible_disease':
     case 'plague':
+    case 'parasite':
       return 'toxic';
     case 'old_wizard':
     case 'necromancer':
+    case 'conjurer':
+    case 'ball_lightning':
+    case 'evil_spirit':
       return 'arcane';
     default:
       return 'crimson';
@@ -171,10 +165,25 @@ interface TurnBannerState {
   side: CardSide | 'neutral';
 }
 
+type ActiveCampaignCutscene =
+  | {
+      kind: 'prologue';
+      lines: CampaignDialogueLine[];
+    }
+  | {
+      kind: 'pre_battle';
+      stage: CampaignStageConfig;
+      lines: CampaignDialogueLine[];
+    }
+  | {
+      kind: 'finale';
+      lines: CampaignDialogueLine[];
+    };
+
 function hydrateSavedState(saved: GameState): GameState {
   const refreshCard = (c: CardDefinition): CardDefinition => {
     const fresh = getCardById(c.id);
-    return fresh ? { ...c, image: fresh.image } : c;
+    return fresh ? { ...fresh } : c;
   };
   return {
     ...saved,
@@ -192,6 +201,7 @@ function hydrateSavedState(saved: GameState): GameState {
       ...bc,
       card: refreshCard(bc.card),
     })),
+    botMemory: saved.botMemory ?? createInitialBotMemory(),
   };
 }
 
@@ -216,17 +226,25 @@ export default function App() {
   );
   const [selectedCampaignSide, setSelectedCampaignSide] =
     useState<CardSide>('resistance');
+  const [campaignCutscene, setCampaignCutscene] =
+    useState<ActiveCampaignCutscene | null>(null);
   const [hasSavedSession, setHasSavedSession] = useState<boolean>(false);
   const [savedGameLabel, setSavedGameLabel] = useState<string | undefined>(
     undefined
   );
   const [isRulesOpen, setIsRulesOpen] = useState<boolean>(false);
   const [mobileLogOpen, setMobileLogOpen] = useState<boolean>(false);
-  const [isMuted, setIsMuted] = useState<boolean>(sound.getMuted());
   const [autoPlay, setAutoPlay] = useState<boolean>(false);
+  const [battleSpeed, setBattleSpeed] = useState<1 | 2>(1);
+  const [isFlippingReveal, setIsFlippingReveal] = useState<boolean>(false);
+  const [activeVfx, setActiveVfx] = useState<ActiveVfxData | null>(null);
+  const [battlefieldShaking, setBattlefieldShaking] = useState<boolean>(false);
+  const [cardCallouts, setCardCallouts] = useState<Record<string, CombatCallout>>({});
   const [wizardModalOpen, setWizardModalOpen] = useState<boolean>(false);
   const [necromancerModalOpen, setNecromancerModalOpen] = useState<boolean>(false);
   const [evacuationModalOpen, setEvacuationModalOpen] = useState<boolean>(false);
+  const [coldCalcModalOpen, setColdCalcModalOpen] = useState<boolean>(false);
+  const [conjurerModalOpen, setConjurerModalOpen] = useState<boolean>(false);
   const [surrenderModalOpen, setSurrenderModalOpen] = useState<boolean>(false);
   const [activeAnimation, setActiveAnimation] = useState<ActiveTurnAnimation | null>(null);
   const [turnBanner, setTurnBanner] = useState<TurnBannerState | null>(null);
@@ -243,22 +261,82 @@ export default function App() {
 
   const autoPlayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const arenaRef = useRef<HTMLDivElement | null>(null);
   const battlefieldCenterRef = useRef<HTMLDivElement | null>(null);
   const animTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const calloutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastAnnouncedTurnRef = useRef<string>('');
 
   const clearAnimationTimers = () => {
     animTimersRef.current.forEach((t) => clearTimeout(t));
     animTimersRef.current = [];
+    if (flipTimerRef.current) {
+      clearTimeout(flipTimerRef.current);
+      flipTimerRef.current = null;
+    }
+    if (calloutTimerRef.current) {
+      clearTimeout(calloutTimerRef.current);
+      calloutTimerRef.current = null;
+    }
+    if (shakeTimerRef.current) {
+      clearTimeout(shakeTimerRef.current);
+      shakeTimerRef.current = null;
+    }
   };
 
   useEffect(() => {
     return () => {
       clearAnimationTimers();
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+      voiceService.stop();
     };
   }, []);
+
+  // Synchronize adaptive atmospheric soundtrack with the active game phase, cutscene, and battle tension
+  useEffect(() => {
+    let targetScene: AmbientScene = 'menu';
+
+    if (campaignCutscene) {
+      targetScene = 'cutscene';
+    } else if (
+      gameState.phase === 'menu' ||
+      gameState.phase === 'cards_catalog' ||
+      gameState.phase === 'campaign_select' ||
+      gameState.phase === 'game_over'
+    ) {
+      targetScene = 'menu';
+    } else if (gameState.phase === 'campaign_map') {
+      targetScene = 'campaign_map';
+    } else if (
+      gameState.phase === 'p1_select' ||
+      gameState.phase === 'pass_device' ||
+      gameState.phase === 'p2_select' ||
+      gameState.phase === 'ready_to_battle'
+    ) {
+      targetScene = 'battle_prep';
+    } else if (
+      gameState.phase === 'battle_resolving' ||
+      gameState.phase === 'battle_ended'
+    ) {
+      const stageMeta = gameState.campaign
+        ? getCampaignStage(gameState.campaign.side, gameState.campaign.stageId)
+        : undefined;
+      const isBossStage =
+        stageMeta?.milestoneTag === 'boss' || stageMeta?.milestoneTag === 'demon';
+      const isLateRound = gameState.roundNumber >= MAX_BATTLE_ROUNDS - 2;
+      targetScene = isBossStage || isLateRound ? 'battle_intense' : 'battle_combat';
+    }
+
+    sound.setScene(targetScene);
+  }, [
+    campaignCutscene,
+    gameState.phase,
+    gameState.roundNumber,
+    gameState.campaign,
+  ]);
 
   // Announce whose turn it is in the center of the screen at the start of each turn
   useEffect(() => {
@@ -305,7 +383,7 @@ export default function App() {
     } else if (gameState.phase === 'battle_resolving') {
       const actor = gameState.activeBattleQueue[gameState.currentTurnIndex];
       if (actor) {
-        const key = `${gameState.roundNumber}-battle-${gameState.currentTurnIndex}`;
+        const key = `${gameState.roundNumber}-battle-${gameState.currentTurnIndex}-${actor.instanceId}-${actor.card.id}`;
         if (lastAnnouncedTurnRef.current !== key) {
           const ownerTitle =
             actor.owner === 'player1'
@@ -331,7 +409,7 @@ export default function App() {
       if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
       bannerTimerRef.current = setTimeout(() => {
         setTurnBanner(null);
-      }, 1500);
+      }, 900);
     }
   }, [
     gameState.phase,
@@ -433,6 +511,7 @@ export default function App() {
       ],
       winner: null,
       historyRoundsCount: 0,
+      botMemory: createInitialBotMemory(),
     };
   }
 
@@ -482,12 +561,17 @@ export default function App() {
         side: stage.side,
         stageId: stage.id,
       },
+      botMemory: createInitialBotMemory(),
     };
   }
 
   const resetBattleTransientUi = () => {
     clearAnimationTimers();
     setActiveAnimation(null);
+    setActiveVfx(null);
+    setBattlefieldShaking(false);
+    setCardCallouts({});
+    setIsFlippingReveal(false);
     setInspectModal(null);
     lastAnnouncedTurnRef.current = '';
     setTurnBanner(null);
@@ -496,6 +580,8 @@ export default function App() {
     setWizardModalOpen(false);
     setNecromancerModalOpen(false);
     setEvacuationModalOpen(false);
+    setColdCalcModalOpen(false);
+    setConjurerModalOpen(false);
     setSurrenderModalOpen(false);
   };
 
@@ -510,16 +596,70 @@ export default function App() {
   const handleStartCampaignStage = (stage: CampaignStageConfig) => {
     sound.playSelect();
     resetBattleTransientUi();
+    setCampaignCutscene(null);
     setSelectedCampaignSide(stage.side);
     setGameState(createCampaignGameState(stage));
+  };
+
+  const handleRequestCampaignStage = (stage: CampaignStageConfig) => {
+    sound.playSelect();
+    setSelectedCampaignSide(stage.side);
+    if (stage.preBattleDialogue && stage.preBattleDialogue.length > 0) {
+      setCampaignCutscene({
+        kind: 'pre_battle',
+        stage,
+        lines: stage.preBattleDialogue,
+      });
+    } else {
+      handleStartCampaignStage(stage);
+    }
+  };
+
+  const handleOpenPrologueCutscene = () => {
+    sound.playSelect();
+    setCampaignCutscene({
+      kind: 'prologue',
+      lines: RESISTANCE_PROLOGUE_DIALOGUE,
+    });
+  };
+
+  const handleOpenFinaleCutscene = () => {
+    sound.playSelect();
+    setCampaignCutscene({
+      kind: 'finale',
+      lines: RESISTANCE_FINALE_DIALOGUE,
+    });
+  };
+
+  const markPrologueSeen = () => {
+    setCampaignProgress((prev) => {
+      if (prev.hasSeenResistancePrologue) return prev;
+      const updated: CampaignProgress = {
+        ...prev,
+        hasSeenResistancePrologue: true,
+      };
+      saveCampaignProgress(updated);
+      return updated;
+    });
   };
 
   const handleOpenCampaign = () => {
     sound.playSelect();
     resetBattleTransientUi();
+    setCampaignCutscene(null);
     setGameState((prev) => ({
       ...prev,
       phase: 'campaign_select',
+    }));
+  };
+
+  const handleOpenCardsCatalog = () => {
+    sound.playSelect();
+    resetBattleTransientUi();
+    setCampaignCutscene(null);
+    setGameState((prev) => ({
+      ...prev,
+      phase: 'cards_catalog',
     }));
   };
 
@@ -532,11 +672,18 @@ export default function App() {
       ...prev,
       phase: 'campaign_map',
     }));
+    if (!campaignProgress.hasSeenResistancePrologue) {
+      setCampaignCutscene({
+        kind: 'prologue',
+        lines: RESISTANCE_PROLOGUE_DIALOGUE,
+      });
+    }
   };
 
   const handleReturnToCampaignMap = () => {
     sound.playSelect();
     resetBattleTransientUi();
+    setCampaignCutscene(null);
     if (gameState.campaign) {
       setSelectedCampaignSide(gameState.campaign.side);
     }
@@ -571,14 +718,21 @@ export default function App() {
     }));
   };
 
-  const toggleMute = () => {
-    const next = sound.toggleMute();
-    setIsMuted(next);
-  };
-
   // Card selection in hand
   const toggleCardSelect = (playerId: 'player1' | 'player2', cardId: string) => {
-    sound.playSelect();
+    const currentPlayer =
+      playerId === 'player1' ? gameState.player1 : gameState.player2;
+    const alreadySelected = currentPlayer.selectedCardIds.includes(cardId);
+    const maxSelectableNow = Math.min(3, currentPlayer.hand.length);
+
+    if (alreadySelected) {
+      sound.playCardUnstage();
+    } else if (currentPlayer.selectedCardIds.length < maxSelectableNow) {
+      sound.playCardStage();
+    } else {
+      sound.playUiClick();
+    }
+
     setGameState((prev) => {
       const player = playerId === 'player1' ? prev.player1 : prev.player2;
       const isSelected = player.selectedCardIds.includes(cardId);
@@ -652,26 +806,29 @@ export default function App() {
     setInspectModal(null);
     setGameState((prev) => {
       if (prev.mode === 'bot') {
+        const campaignStage = prev.campaign
+          ? getCampaignStage(prev.campaign.side, prev.campaign.stageId)
+          : undefined;
         // Check if current campaign stage has a scripted Round 1 opening combo
         const forcedBotCardIds =
-          prev.campaign && prev.roundNumber === 1
-            ? getCampaignStage(prev.campaign.side, prev.campaign.stageId)
-                ?.firstRoundBotCardIds
-            : undefined;
-        // Bot automatically selects
-        const botChosenIds = selectBotCards(
-          prev.player2,
-          prev.player1,
-          forcedBotCardIds
-        );
+          prev.roundNumber === 1 ? campaignStage?.firstRoundBotCardIds : undefined;
+        // Bot selects cards using faction schemes, lookahead simulation & anti-repetition memory
+        const botDecision = selectBotDecision(prev.player2, prev.player1, {
+          roundNumber: prev.roundNumber,
+          maxRounds: MAX_BATTLE_ROUNDS,
+          memory: prev.botMemory,
+          forcedCardIds: forcedBotCardIds,
+          preferredSchemes: campaignStage?.preferredBotSchemes,
+        });
         const updatedP2: PlayerState = {
           ...prev.player2,
-          selectedCardIds: botChosenIds,
+          selectedCardIds: botDecision.cardIds,
         };
 
         return {
           ...prev,
           player2: updatedP2,
+          botMemory: recordBotDecision(prev.botMemory, botDecision),
           phase: 'ready_to_battle',
           battleLog: [
             ...prev.battleLog,
@@ -705,7 +862,23 @@ export default function App() {
   // Start Battle
   const handleStartBattle = () => {
     sound.playBattleStart();
+    const totalFlippedCards =
+      gameState.player1.selectedCardIds.length +
+      gameState.player2.selectedCardIds.length;
+    for (let i = 0; i < Math.min(6, totalFlippedCards); i++) {
+      sound.playCardFlip(i);
+    }
     setInspectModal(null);
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!prefersReducedMotion) {
+      setIsFlippingReveal(true);
+      if (flipTimerRef.current) clearTimeout(flipTimerRef.current);
+      flipTimerRef.current = setTimeout(() => {
+        setIsFlippingReveal(false);
+      }, 760);
+    }
     setGameState((prev) => {
       // Find cards by selected IDs
       const p1Cards = prev.player1.selectedCardIds
@@ -725,6 +898,13 @@ export default function App() {
       );
 
       const queue = initializeBattleQueue(p1Cards, p2Cards);
+      const nextBotMemory =
+        prev.mode === 'bot'
+          ? recordEnemyPlayedCards(
+              prev.botMemory,
+              p1Cards.map((c) => c.id)
+            )
+          : prev.botMemory;
 
       return {
         ...prev,
@@ -737,6 +917,7 @@ export default function App() {
           ...prev.player2,
           hand: newP2Hand,
         },
+        botMemory: nextBotMemory,
         activeBattleQueue: queue,
         currentTurnIndex: 0,
         battleLog: [
@@ -757,7 +938,9 @@ export default function App() {
   const handleStepResolution = (
     replacementForSeer?: CardDefinition,
     chosenReviveCard?: CardDefinition | null,
-    chosenEvacuateCard?: CardDefinition | null
+    chosenEvacuateCard?: CardDefinition | null,
+    chosenSummonCard?: CardDefinition | null,
+    audioAlreadyTriggered = false
   ) => {
     setGameState((prev) => {
       if (prev.phase !== 'battle_resolving') return prev;
@@ -769,7 +952,8 @@ export default function App() {
         prev.player2,
         replacementForSeer,
         chosenReviveCard,
-        chosenEvacuateCard
+        chosenEvacuateCard,
+        chosenSummonCard
       );
 
       let workingQueue = stepResult.queue;
@@ -780,19 +964,29 @@ export default function App() {
       let workingP2Discard = stepResult.player2Discard;
       let endedEarly = stepResult.battleEndedEarly;
 
-      // Sound trigger for the acting card
-      const hasDestruction = stepResult.logs.some((l) => l.type === 'destroy');
-      const hasProtection = stepResult.logs.some((l) => l.type === 'protect');
-      if (hasDestruction) {
-        sound.playHit();
-      } else if (hasProtection) {
-        sound.playShield();
-      } else {
-        sound.playSelect();
+      // Fallback sound triggers when reduced motion or direct modal skip bypasses runAnimatedStep
+      if (!audioAlreadyTriggered) {
+        const actingCard =
+          replacementForSeer ?? prev.activeBattleQueue[prev.currentTurnIndex]?.card;
+        if (actingCard) {
+          sound.playCombatArchetype(getVfxArchetypeForCard(actingCard), 'impact');
+        }
+        const hasDestruction = stepResult.logs.some((l) => l.type === 'destroy');
+        const hasProtection = stepResult.logs.some((l) => l.type === 'protect');
+        const hasCancel = stepResult.logs.some((l) => l.type === 'cancel');
+        if (hasDestruction) {
+          sound.playStatusEffect('destroy');
+        } else if (hasProtection) {
+          sound.playStatusEffect('protect');
+        } else if (hasCancel) {
+          sound.playStatusEffect('cancel');
+        }
       }
 
       // Automatically advance past any subsequent destroyed, disabled, cancelled, or evacuated cards
-      let nextTurnIndex = prev.currentTurnIndex + 1;
+      let nextTurnIndex = stepResult.queueReorderedStayAtIndex
+        ? prev.currentTurnIndex
+        : prev.currentTurnIndex + 1;
       while (
         !endedEarly &&
         nextTurnIndex < workingQueue.length &&
@@ -883,6 +1077,14 @@ export default function App() {
         let candidates = queue.filter((c) => matchesFilter(c, eff.target!, sourceCard));
         if (eff.target.priority === 'highest_rank') {
           candidates = [...candidates].sort((a, b) => b.currentRank - a.currentRank);
+        } else if (eff.target.priority === 'lowest_rank') {
+          candidates = [...candidates].sort((a, b) => a.currentRank - b.currentRank);
+        } else if (eff.target.priority === 'highest_initiative') {
+          candidates = [...candidates].sort((a, b) =>
+            b.currentInitiative !== a.currentInitiative
+              ? b.currentInitiative - a.currentInitiative
+              : b.currentRank - a.currentRank
+          );
         }
         if (eff.target.limit !== undefined) {
           candidates = candidates.slice(0, eff.target.limit);
@@ -915,9 +1117,43 @@ export default function App() {
               c.card.id === eff.cancelCardId
           )
           .forEach((cand) => impactSet.add(cand.instanceId));
+      } else if (eff.action === 'cancel_ability' && eff.target) {
+        let candidates = queue.filter((c) => matchesFilter(c, eff.target!, sourceCard));
+        if (eff.target.priority === 'highest_initiative') {
+          candidates = [...candidates].sort((a, b) =>
+            b.currentInitiative !== a.currentInitiative
+              ? b.currentInitiative - a.currentInitiative
+              : b.currentRank - a.currentRank
+          );
+        } else if (eff.target.priority === 'highest_rank') {
+          candidates = [...candidates].sort((a, b) => b.currentRank - a.currentRank);
+        } else if (eff.target.priority === 'lowest_rank') {
+          candidates = [...candidates].sort((a, b) => a.currentRank - b.currentRank);
+        }
+        if (eff.target.limit !== undefined) {
+          candidates = candidates.slice(0, eff.target.limit);
+        }
+        candidates.forEach((cand) => {
+          const isProtected =
+            !eff.ignoreProtection && cand.protectedAgainst.includes(effectiveCard.type);
+          if (!isProtected) {
+            impactSet.add(cand.instanceId);
+          }
+        });
       } else if (eff.action === 'protect' && eff.target) {
         queue
           .filter((c) => matchesFilter(c, eff.target!, sourceCard))
+          .forEach((cand) => shieldSet.add(cand.instanceId));
+      } else if (eff.action === 'reanimate_battle') {
+        queue
+          .filter(
+            (c) =>
+              c.isDestroyed &&
+              !c.isEvacuated &&
+              c.instanceId !== sourceCard.instanceId &&
+              c.owner === sourceCard.owner &&
+              (!eff.target?.types || eff.target.types.includes(c.card.type))
+          )
           .forEach((cand) => shieldSet.add(cand.instanceId));
       }
     }
@@ -934,19 +1170,19 @@ export default function App() {
     effectiveCardOverride?: CardDefinition,
     extraShieldCardId?: string
   ) => {
+    const effectiveCard = effectiveCardOverride ?? sourceCard.card;
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     if (prefersReducedMotion) {
+      sound.playCombatArchetype(getVfxArchetypeForCard(effectiveCard), 'impact');
       onImpactResolve();
       return;
     }
 
     clearAnimationTimers();
     setTurnBanner(null);
-
-    const effectiveCard = effectiveCardOverride ?? sourceCard.card;
     const isCenterCast =
       effectiveCard.type === 'magic' ||
       CENTER_CAST_CARD_IDS.has(effectiveCard.id) ||
@@ -1058,6 +1294,87 @@ export default function App() {
     }
 
     const effectTheme = getEffectThemeForCard(effectiveCard);
+    const speedFactor = battleSpeed === 2 ? 0.55 : 1;
+
+    // Measure arena-relative coordinates for targeted SVG trajectory VFX
+    const arenaRect = arenaRef.current?.getBoundingClientRect();
+    const toLocalPoint = (rect: DOMRect | undefined) => {
+      if (!arenaRect || !rect) return null;
+      return {
+        x: rect.left + rect.width / 2 - arenaRect.left,
+        y: rect.top + rect.height / 2 - arenaRect.top,
+      };
+    };
+
+    const allVfxTargetIds =
+      impactTargetIds.length > 0 ? impactTargetIds : shieldTargetIds;
+    const centerRectNow = battlefieldCenterRef.current?.getBoundingClientRect();
+    const fallbackCenter = arenaRect
+      ? { x: arenaRect.width / 2, y: arenaRect.height / 2 }
+      : { x: 240, y: 180 };
+    const localCenter = toLocalPoint(centerRectNow) ?? fallbackCenter;
+    const localSource = toLocalPoint(srcRect) ?? localCenter;
+    const localTargets = allVfxTargetIds
+      .map((id) => toLocalPoint(cardRefs.current[id]?.getBoundingClientRect()))
+      .filter((p): p is { x: number; y: number } => Boolean(p));
+
+    const vfxArchetype = getVfxArchetypeForCard(effectiveCard);
+
+    const vfxPayload: ActiveVfxData | null = arenaRect
+      ? {
+          id: `${sourceCard.instanceId}-${Date.now()}`,
+          archetype: vfxArchetype,
+          theme: effectTheme,
+          sourcePoint: mode === 'center_cast' ? localCenter : localSource,
+          targetPoints: localTargets,
+          centerPoint: localCenter,
+          containerWidth: arenaRect.width,
+          containerHeight: arenaRect.height,
+        }
+      : null;
+
+    // Trigger opening cast / launch combat SFX synchronized with card arc/cast movement
+    sound.playCombatArchetype(vfxArchetype, 'cast');
+
+    // Build floating combat callout badges for affected targets
+    const buildImpactCallouts = (): Record<string, CombatCallout> => {
+      const next: Record<string, CombatCallout> = {};
+      const stamp = Date.now();
+      const hasDestroy = effectiveCard.effects.some((e) => e.action === 'destroy');
+      const hasReduceRank = effectiveCard.effects.some((e) => e.action === 'reduce_rank');
+      const hasCancel = effectiveCard.effects.some((e) => e.action === 'cancel_ability');
+      const hasDisable = effectiveCard.effects.some((e) => e.action === 'disable');
+      const hasProtect = effectiveCard.effects.some((e) => e.action === 'protect');
+      const hasRevive = effectiveCard.effects.some((e) => e.action === 'reanimate_battle');
+
+      impactTargetIds.forEach((id) => {
+        if (hasReduceRank && !hasDestroy) {
+          next[id] = { key: `${id}-${stamp}`, text: '-1 РАНГ', tone: 'debuff' };
+        } else if (hasCancel && !hasDestroy) {
+          next[id] = { key: `${id}-${stamp}`, text: 'БЛОК', tone: 'debuff' };
+        } else if (hasDisable && !hasDestroy) {
+          next[id] = { key: `${id}-${stamp}`, text: 'ОТКЛ.', tone: 'debuff' };
+        } else if (hasDestroy) {
+          next[id] = { key: `${id}-${stamp}`, text: 'УНИЧТОЖЕН', tone: 'danger' };
+        }
+      });
+
+      shieldTargetIds.forEach((id) => {
+        if (effectiveCard.id === 'evacuation' || extraShieldCardId) {
+          next[id] = { key: `${id}-${stamp}`, text: 'ЭВАКУАЦИЯ', tone: 'info' };
+        } else if (hasRevive) {
+          next[id] = { key: `${id}-${stamp}`, text: 'ВОСКРЕШЁН', tone: 'revive' };
+        } else if (hasProtect) {
+          next[id] = { key: `${id}-${stamp}`, text: 'ЗАЩИТА', tone: 'shield' };
+        }
+      });
+
+      return next;
+    };
+
+    const shouldShake =
+      isHeavyShakeCard(effectiveCard) &&
+      (impactTargetIds.length > 0 || mode === 'center_cast');
 
     setActiveAnimation({
       instanceId: sourceCard.instanceId,
@@ -1075,15 +1392,62 @@ export default function App() {
           ? { ...prev, showImpactOverlay: true }
           : prev
       );
-    }, 260);
+      if (vfxPayload) {
+        setActiveVfx(vfxPayload);
+      }
+
+      // Synchronized archetype impact + contextual tactical status audio
+      sound.playCombatArchetype(vfxArchetype, 'impact');
+      const hasDestroy = effectiveCard.effects.some((e) => e.action === 'destroy');
+      const hasReduceRank = effectiveCard.effects.some((e) => e.action === 'reduce_rank');
+      const hasCancel = effectiveCard.effects.some(
+        (e) => e.action === 'cancel_ability' || e.action === 'disable'
+      );
+      const hasRevive = effectiveCard.effects.some(
+        (e) => e.action === 'reanimate_battle' || e.action === 'revive'
+      );
+
+      if (effectiveCard.id === 'evacuation' || extraShieldCardId) {
+        sound.playStatusEffect('evacuate');
+      } else if (hasRevive) {
+        sound.playStatusEffect('revive');
+      } else if (impactTargetIds.length > 0) {
+        if (hasDestroy) {
+          sound.playStatusEffect('destroy');
+        } else if (hasReduceRank) {
+          sound.playStatusEffect('reduce_rank');
+        } else if (hasCancel) {
+          sound.playStatusEffect('cancel');
+        }
+      } else if (shieldTargetIds.length > 0) {
+        sound.playStatusEffect('protect');
+      }
+
+      const nextCallouts = buildImpactCallouts();
+      if (Object.keys(nextCallouts).length > 0) {
+        setCardCallouts(nextCallouts);
+        if (calloutTimerRef.current) clearTimeout(calloutTimerRef.current);
+        calloutTimerRef.current = setTimeout(() => {
+          setCardCallouts({});
+        }, Math.round(980 * speedFactor));
+      }
+      if (shouldShake) {
+        setBattlefieldShaking(true);
+        if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
+        shakeTimerRef.current = setTimeout(() => {
+          setBattlefieldShaking(false);
+        }, 250);
+      }
+    }, Math.round(240 * speedFactor));
 
     const tResolve = setTimeout(() => {
       onImpactResolve();
-    }, 360);
+    }, Math.round(350 * speedFactor));
 
-    const duration = mode === 'center_cast' ? 820 : 760;
+    const duration = Math.round((mode === 'center_cast' ? 820 : 760) * speedFactor);
     const tDone = setTimeout(() => {
       setActiveAnimation(null);
+      setActiveVfx(null);
     }, duration);
 
     animTimersRef.current = [tOverlay, tResolve, tDone];
@@ -1109,7 +1473,7 @@ export default function App() {
       if (artilleryCard) {
         runAnimatedStep(
           currentCard,
-          () => handleStepResolution(artilleryCard),
+          () => handleStepResolution(artilleryCard, undefined, undefined, undefined, true),
           artilleryCard
         );
         return;
@@ -1125,6 +1489,8 @@ export default function App() {
     ) {
       const ownerState =
         currentCard.owner === 'player1' ? gameState.player1 : gameState.player2;
+      const enemyState =
+        currentCard.owner === 'player1' ? gameState.player2 : gameState.player1;
 
       // Spells currently available in owner's hand
       const availableSpells = ownerState.hand.filter((c) => c.type === 'magic');
@@ -1134,11 +1500,17 @@ export default function App() {
         setWizardModalOpen(true);
         return;
       } else if (ownerState.isBot && availableSpells.length > 0) {
-        // Bot automatically chooses best available spell from hand
-        const botSpell = selectBotSpellCard(ownerState.hand);
+        // Bot simulates spells on the live battlefield and chooses the best swing (or saves spells)
+        const botSpell = selectBotSpellCard(
+          ownerState.hand,
+          gameState.activeBattleQueue,
+          currentCard,
+          ownerState,
+          enemyState
+        );
         runAnimatedStep(
           currentCard,
-          () => handleStepResolution(botSpell),
+          () => handleStepResolution(botSpell, undefined, undefined, undefined, true),
           botSpell
         );
         return;
@@ -1154,6 +1526,8 @@ export default function App() {
     ) {
       const ownerState =
         currentCard.owner === 'player1' ? gameState.player1 : gameState.player2;
+      const enemyState =
+        currentCard.owner === 'player1' ? gameState.player2 : gameState.player1;
       const eligibleCreatures = ownerState.discard.filter(
         (c) => c.type === 'creature' && c.rank <= 6 && c.id !== 'necromancer'
       );
@@ -1162,9 +1536,13 @@ export default function App() {
         setNecromancerModalOpen(true);
         return;
       } else if (ownerState.isBot && eligibleCreatures.length > 0) {
-        const botRevive = selectBotReviveCard(ownerState.discard);
+        const botRevive = selectBotReviveCard(
+          ownerState.discard,
+          ownerState.hand,
+          enemyState
+        );
         runAnimatedStep(currentCard, () =>
-          handleStepResolution(undefined, botRevive)
+          handleStepResolution(undefined, botRevive, undefined, undefined, true)
         );
         return;
       }
@@ -1180,6 +1558,8 @@ export default function App() {
     ) {
       const ownerState =
         currentCard.owner === 'player1' ? gameState.player1 : gameState.player2;
+      const enemyState =
+        currentCard.owner === 'player1' ? gameState.player2 : gameState.player1;
       const eligibleBattleTargets = gameState.activeBattleQueue.filter(
         (c) =>
           c.owner === currentCard.owner &&
@@ -1195,11 +1575,21 @@ export default function App() {
       } else if (ownerState.isBot && eligibleBattleTargets.length > 0) {
         const botEvacuate = selectBotEvacuateCard(
           gameState.activeBattleQueue,
-          currentCard.owner
+          currentCard.owner,
+          currentCard.instanceId,
+          ownerState,
+          enemyState
         );
         runAnimatedStep(
           currentCard,
-          () => handleStepResolution(undefined, undefined, botEvacuate ?? null),
+          () =>
+            handleStepResolution(
+              undefined,
+              undefined,
+              botEvacuate ?? null,
+              undefined,
+              true
+            ),
           undefined,
           botEvacuate?.id
         );
@@ -1207,8 +1597,87 @@ export default function App() {
       }
     }
 
+    // 5. Холодный расчёт (cold_calculation): может подменить себя на любое существо или технику из руки, или ничего не делать
+    if (
+      currentCard.card.id === 'cold_calculation' &&
+      !currentCard.isDestroyed &&
+      !currentCard.isDisabled &&
+      !currentCard.isCancelled &&
+      !currentCard.isEvacuated
+    ) {
+      const ownerState =
+        currentCard.owner === 'player1' ? gameState.player1 : gameState.player2;
+      const enemyState =
+        currentCard.owner === 'player1' ? gameState.player2 : gameState.player1;
+      const eligibleUnits = ownerState.hand.filter(
+        (c) => c.type === 'creature' || c.type === 'technology'
+      );
+
+      if (!ownerState.isBot && eligibleUnits.length > 0) {
+        setColdCalcModalOpen(true);
+        return;
+      } else if (ownerState.isBot && eligibleUnits.length > 0) {
+        const botUnit = selectBotColdCalculationCard(
+          ownerState.hand,
+          gameState.activeBattleQueue,
+          currentCard,
+          ownerState,
+          enemyState
+        );
+        if (botUnit) {
+          runAnimatedStep(
+            currentCard,
+            () => handleStepResolution(botUnit, undefined, undefined, undefined, true),
+            botUnit
+          );
+          return;
+        }
+      }
+    }
+
+    // 6. Заклинатель (conjurer): призывает Беса или Злого духа вместо себя и возвращается в руку
+    if (
+      currentCard.card.id === 'conjurer' &&
+      !currentCard.isDestroyed &&
+      !currentCard.isDisabled &&
+      !currentCard.isCancelled &&
+      !currentCard.isEvacuated
+    ) {
+      const ownerState =
+        currentCard.owner === 'player1' ? gameState.player1 : gameState.player2;
+      const enemyState =
+        currentCard.owner === 'player1' ? gameState.player2 : gameState.player1;
+      const availableSummons = getAvailableSummonOptions(
+        ['imp', 'evil_spirit'],
+        currentCard.owner,
+        gameState.activeBattleQueue,
+        ownerState.discard
+      );
+
+      if (!ownerState.isBot && availableSummons.length > 0) {
+        setConjurerModalOpen(true);
+        return;
+      } else if (ownerState.isBot && availableSummons.length > 0) {
+        const botSummon = selectBotConjurerSummon(
+          availableSummons,
+          gameState.activeBattleQueue,
+          currentCard.owner,
+          ownerState,
+          enemyState
+        );
+        if (botSummon) {
+          runAnimatedStep(currentCard, () =>
+            handleStepResolution(undefined, undefined, undefined, botSummon, true)
+          );
+          return;
+        }
+      }
+    }
+
     // Normal step
-    runAnimatedStep(currentCard, () => handleStepResolution());
+    runAnimatedStep(currentCard, () =>
+      handleStepResolution(undefined, undefined, undefined, undefined, true)
+    );
   };
 
   // Auto-play effect
@@ -1220,12 +1689,14 @@ export default function App() {
       !wizardModalOpen &&
       !necromancerModalOpen &&
       !evacuationModalOpen &&
+      !coldCalcModalOpen &&
+      !conjurerModalOpen &&
       !surrenderModalOpen &&
       !inspectModal
     ) {
       autoPlayTimeoutRef.current = setTimeout(() => {
         triggerNextTurn();
-      }, 380);
+      }, battleSpeed === 2 ? 180 : 380);
     }
     return () => {
       if (autoPlayTimeoutRef.current) {
@@ -1234,12 +1705,16 @@ export default function App() {
     };
   }, [
     autoPlay,
+    battleSpeed,
     activeAnimation,
     gameState.phase,
     gameState.currentTurnIndex,
+    gameState.activeBattleQueue,
     wizardModalOpen,
     necromancerModalOpen,
     evacuationModalOpen,
+    coldCalcModalOpen,
+    conjurerModalOpen,
     surrenderModalOpen,
     inspectModal,
   ]);
@@ -1251,7 +1726,7 @@ export default function App() {
     if (currentCard && repCard) {
       runAnimatedStep(
         currentCard,
-        () => handleStepResolution(repCard),
+        () => handleStepResolution(repCard, undefined, undefined, undefined, true),
         repCard
       );
     } else {
@@ -1265,7 +1740,7 @@ export default function App() {
     const currentCard = gameState.activeBattleQueue[gameState.currentTurnIndex];
     if (currentCard && reviveCard) {
       runAnimatedStep(currentCard, () =>
-        handleStepResolution(undefined, reviveCard)
+        handleStepResolution(undefined, reviveCard, undefined, undefined, true)
       );
     } else {
       handleStepResolution(undefined, reviveCard ?? null);
@@ -1279,12 +1754,41 @@ export default function App() {
     if (currentCard && evacuateCard) {
       runAnimatedStep(
         currentCard,
-        () => handleStepResolution(undefined, undefined, evacuateCard),
+        () =>
+          handleStepResolution(undefined, undefined, evacuateCard, undefined, true),
         undefined,
         evacuateCard.id
       );
     } else {
       handleStepResolution(undefined, undefined, evacuateCard ?? null);
+    }
+  };
+
+  // Cold Calculation modal replacement confirmed
+  const handleColdCalcChoice = (repCard?: CardDefinition) => {
+    setColdCalcModalOpen(false);
+    const currentCard = gameState.activeBattleQueue[gameState.currentTurnIndex];
+    if (currentCard && repCard) {
+      runAnimatedStep(
+        currentCard,
+        () => handleStepResolution(repCard, undefined, undefined, undefined, true),
+        repCard
+      );
+    } else {
+      handleStepResolution(undefined);
+    }
+  };
+
+  // Conjurer modal summon choice confirmed
+  const handleConjurerChoice = (summonCard?: CardDefinition) => {
+    setConjurerModalOpen(false);
+    const currentCard = gameState.activeBattleQueue[gameState.currentTurnIndex];
+    if (currentCard && summonCard) {
+      runAnimatedStep(currentCard, () =>
+        handleStepResolution(undefined, undefined, undefined, summonCard, true)
+      );
+    } else {
+      handleStepResolution(undefined, undefined, undefined, null);
     }
   };
 
@@ -1317,17 +1821,69 @@ export default function App() {
     }));
   };
 
-  // Next round transition & defeat verification
+  // Unlock next campaign stage upon player victory (and trigger Stage 20 finale cutscene)
+  const recordCampaignStageVictory = () => {
+    if (!gameState.campaign) return;
+    const { side, stageId } = gameState.campaign;
+    setCampaignProgress((prevProgress) => {
+      const existing = prevProgress.completedStages[side] ?? [];
+      if (existing.includes(stageId)) {
+        return prevProgress;
+      }
+      const updated: CampaignProgress = {
+        ...prevProgress,
+        completedStages: {
+          ...prevProgress.completedStages,
+          [side]: [...existing, stageId].sort((a, b) => a - b),
+        },
+      };
+      saveCampaignProgress(updated);
+      return updated;
+    });
+
+    const sideStages = getCampaignStagesBySide(side);
+    const finalStageId = sideStages[sideStages.length - 1]?.id;
+    if (side === 'resistance' && finalStageId !== undefined && stageId === finalStageId) {
+      setCampaignCutscene({
+        kind: 'finale',
+        lines: RESISTANCE_FINALE_DIALOGUE,
+      });
+    }
+  };
+
+  // Next round transition & defeat/turn-limit verification
   const handleNextRound = () => {
     sound.playSelect();
     clearAnimationTimers();
     setActiveAnimation(null);
+    setActiveVfx(null);
+    setBattlefieldShaking(false);
+    setCardCallouts({});
+    setIsFlippingReveal(false);
     setInspectModal(null);
     setAutoPlay(false);
 
-    // Rule: Player loses if out of cards at start of next battle OR no winner after 10 rounds
-    const p1Empty = gameState.player1.hand.length === 0;
-    const p2Empty = gameState.player2.hand.length === 0;
+    // At battle_ended, surviving battlefield cards have already returned to hand via finalizeBattle.
+    const p1Remaining = gameState.player1.hand.length;
+    const p2Remaining = gameState.player2.hand.length;
+    const p1Empty = p1Remaining === 0;
+    const p2Empty = p2Remaining === 0;
+
+    if (p1Empty && p2Empty) {
+      sound.playDefeat();
+      setGameState((prev) => ({
+        ...prev,
+        phase: 'game_over',
+        winner: null,
+        defeatReason: 'empty_hand',
+        finalCardCounts: { player1: 0, player2: 0 },
+        battleLog: [
+          ...prev.battleLog,
+          createLogEntry('info', 'У обеих сторон одновременно закончились карты — ничья!'),
+        ],
+      }));
+      return;
+    }
 
     if (p1Empty || p2Empty) {
       const winner: 'player1' | 'player2' = p1Empty ? 'player2' : 'player1';
@@ -1337,23 +1893,8 @@ export default function App() {
         sound.playDefeat();
       }
 
-      // Unlock next campaign stage upon player victory
-      if (winner === 'player1' && gameState.campaign) {
-        const { side, stageId } = gameState.campaign;
-        setCampaignProgress((prevProgress) => {
-          const existing = prevProgress.completedStages[side] ?? [];
-          if (existing.includes(stageId)) {
-            return prevProgress;
-          }
-          const updated: CampaignProgress = {
-            completedStages: {
-              ...prevProgress.completedStages,
-              [side]: [...existing, stageId].sort((a, b) => a - b),
-            },
-          };
-          saveCampaignProgress(updated);
-          return updated;
-        });
+      if (winner === 'player1') {
+        recordCampaignStageVictory();
       }
 
       setGameState((prev) => ({
@@ -1361,26 +1902,67 @@ export default function App() {
         phase: 'game_over',
         winner,
         defeatReason: 'empty_hand',
+        finalCardCounts: { player1: p1Remaining, player2: p2Remaining },
       }));
       return;
     }
 
-    // Turn limit rule: if no winner after 10 rounds, player loses
+    // Turn limit rule: after 10 rounds, whoever has more remaining cards (hand + surviving field) wins
     if (gameState.roundNumber >= MAX_BATTLE_ROUNDS) {
-      sound.playDefeat();
-      setGameState((prev) => ({
-        ...prev,
-        phase: 'game_over',
-        winner: 'player2',
-        defeatReason: 'turn_limit',
-        battleLog: [
-          ...prev.battleLog,
-          createLogEntry(
-            'fail',
-            `За ${MAX_BATTLE_ROUNDS} ходов победитель не выявлен — игрок потерпел поражение!`
-          ),
-        ],
-      }));
+      if (p1Remaining > p2Remaining) {
+        sound.playVictory();
+        recordCampaignStageVictory();
+        setGameState((prev) => ({
+          ...prev,
+          phase: 'game_over',
+          winner: 'player1',
+          defeatReason: 'turn_limit',
+          finalCardCounts: { player1: p1Remaining, player2: p2Remaining },
+          battleLog: [
+            ...prev.battleLog,
+            createLogEntry(
+              'info',
+              `Итоги ${MAX_BATTLE_ROUNDS} ходов: ${prev.player1.name} (${p1Remaining} карт) побеждает ${prev.player2.name} (${p2Remaining} карт)!`
+            ),
+          ],
+        }));
+      } else if (p2Remaining > p1Remaining) {
+        if (gameState.mode === 'pvp_local') {
+          sound.playVictory();
+        } else {
+          sound.playDefeat();
+        }
+        setGameState((prev) => ({
+          ...prev,
+          phase: 'game_over',
+          winner: 'player2',
+          defeatReason: 'turn_limit',
+          finalCardCounts: { player1: p1Remaining, player2: p2Remaining },
+          battleLog: [
+            ...prev.battleLog,
+            createLogEntry(
+              'fail',
+              `Итоги ${MAX_BATTLE_ROUNDS} ходов: ${prev.player2.name} (${p2Remaining} карт) побеждает ${prev.player1.name} (${p1Remaining} карт)!`
+            ),
+          ],
+        }));
+      } else {
+        sound.playDefeat();
+        setGameState((prev) => ({
+          ...prev,
+          phase: 'game_over',
+          winner: null,
+          defeatReason: 'turn_limit',
+          finalCardCounts: { player1: p1Remaining, player2: p2Remaining },
+          battleLog: [
+            ...prev.battleLog,
+            createLogEntry(
+              'info',
+              `Итоги ${MAX_BATTLE_ROUNDS} ходов: у обеих сторон поровну карт (${p1Remaining} : ${p2Remaining}) — ничья!`
+            ),
+          ],
+        }));
+      }
       return;
     }
 
@@ -1423,11 +2005,42 @@ export default function App() {
           campaignCompletedCount={resistanceCompletedIds.length}
           campaignTotalStages={resistanceStages.length}
           onOpenCampaign={handleOpenCampaign}
+          onOpenCardsCatalog={handleOpenCardsCatalog}
           onNewGame={handleStartNewGame}
           onResumeGame={handleResumeGame}
           onOpenRules={() => setIsRulesOpen(true)}
         />
         <RulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
+      </>
+    );
+  }
+
+  // Render Race Cards Encyclopedia
+  if (gameState.phase === 'cards_catalog') {
+    return (
+      <>
+        <CardsCatalog
+          onInspectCard={(card, ownerLabel) => {
+            sound.playSelect();
+            setInspectModal({
+              card,
+              mode: 'inspect',
+              ownerLabel,
+              showRuleDetails: true,
+            });
+          }}
+          onBackToMenu={handleQuitToMenu}
+          onOpenRules={() => setIsRulesOpen(true)}
+        />
+        <RulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
+        <CardInspectModal
+          inspectState={inspectModal}
+          isSelected={false}
+          selectedCount={0}
+          maxSelectable={3}
+          onConfirmSelect={() => setInspectModal(null)}
+          onClose={() => setInspectModal(null)}
+        />
       </>
     );
   }
@@ -1439,8 +2052,6 @@ export default function App() {
         <CampaignFactionSelect
           resistanceCompletedCount={resistanceCompletedIds.length}
           resistanceTotalStages={resistanceStages.length}
-          isMuted={isMuted}
-          onToggleMute={toggleMute}
           onSelectFaction={handleSelectCampaignFaction}
           onBackToMenu={handleQuitToMenu}
           onOpenRules={() => setIsRulesOpen(true)}
@@ -1462,9 +2073,17 @@ export default function App() {
           side={selectedCampaignSide}
           stages={mapStages}
           completedStageIds={completedForSide}
-          isMuted={isMuted}
-          onToggleMute={toggleMute}
-          onStartStage={handleStartCampaignStage}
+          onStartStage={handleRequestCampaignStage}
+          onOpenPrologue={
+            selectedCampaignSide === 'resistance'
+              ? handleOpenPrologueCutscene
+              : undefined
+          }
+          onOpenFinale={
+            selectedCampaignSide === 'resistance'
+              ? handleOpenFinaleCutscene
+              : undefined
+          }
           onInspectCard={(card, ownerLabel) => {
             sound.playSelect();
             setInspectModal({
@@ -1486,6 +2105,64 @@ export default function App() {
           onConfirmSelect={() => setInspectModal(null)}
           onClose={() => setInspectModal(null)}
         />
+        {campaignCutscene && (
+          <CampaignCutsceneOverlay
+            lines={campaignCutscene.lines}
+            headerKicker={
+              campaignCutscene.kind === 'prologue'
+                ? 'Пролог · Кампания Сопротивления'
+                : campaignCutscene.kind === 'finale'
+                ? 'Финал кампании · Победа Сопротивления'
+                : `${campaignCutscene.stage.actTitle} · Этап ${campaignCutscene.stage.id}`
+            }
+            headerTitle={
+              campaignCutscene.kind === 'prologue'
+                ? 'Нападение на лагерь Сопротивления'
+                : campaignCutscene.kind === 'finale'
+                ? 'Демон повержен'
+                : campaignCutscene.stage.title
+            }
+            finalActionLabel={
+              campaignCutscene.kind === 'prologue'
+                ? 'На карту боевых действий'
+                : campaignCutscene.kind === 'finale'
+                ? 'Вернуться на карту'
+                : 'В бой!'
+            }
+            finalActionVariant={
+              campaignCutscene.kind === 'pre_battle' ? 'emerald' : 'primary'
+            }
+            finalActionIcon={
+              campaignCutscene.kind === 'pre_battle'
+                ? 'battle'
+                : campaignCutscene.kind === 'finale'
+                ? 'trophy'
+                : 'continue'
+            }
+            cancelLabel={
+              campaignCutscene.kind === 'pre_battle' ? 'К карте' : undefined
+            }
+            onCancel={
+              campaignCutscene.kind === 'pre_battle'
+                ? () => {
+                    sound.playSelect();
+                    setCampaignCutscene(null);
+                  }
+                : undefined
+            }
+            onComplete={() => {
+              sound.playSelect();
+              if (campaignCutscene.kind === 'prologue') {
+                markPrologueSeen();
+                setCampaignCutscene(null);
+              } else if (campaignCutscene.kind === 'finale') {
+                setCampaignCutscene(null);
+              } else {
+                handleStartCampaignStage(campaignCutscene.stage);
+              }
+            }}
+          />
+        )}
       </>
     );
   }
@@ -1536,6 +2213,17 @@ export default function App() {
       ? gameState.player1.discard
       : gameState.player2.discard;
   const wizardSpellsHand = actingOwnerHand.filter((c) => c.type === 'magic');
+  const coldCalcEligibleHand = actingOwnerHand.filter(
+    (c) => c.type === 'creature' || c.type === 'technology'
+  );
+  const conjurerAvailableSummons = currentCardActing
+    ? getAvailableSummonOptions(
+        ['imp', 'evil_spirit'],
+        currentCardActing.owner,
+        gameState.activeBattleQueue,
+        actingOwnerDiscard
+      )
+    : [];
   const necromancerEligibleDiscard = actingOwnerDiscard.filter(
     (c) => c.type === 'creature' && c.rank <= 6 && c.id !== 'necromancer'
   );
@@ -1559,6 +2247,35 @@ export default function App() {
   const player1BattleCards = gameState.activeBattleQueue
     .filter((c) => c.owner === 'player1')
     .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0));
+
+  // Live Force Balance counter for top header
+  const activeP1FieldCount = isResolving
+    ? gameState.activeBattleQueue.filter(
+        (c) => c.owner === 'player1' && !c.isDestroyed && !c.isEvacuated
+      ).length
+    : 0;
+  const activeP2FieldCount = isResolving
+    ? gameState.activeBattleQueue.filter(
+        (c) => c.owner === 'player2' && !c.isDestroyed && !c.isEvacuated
+      ).length
+    : 0;
+  const p1LiveForces = gameState.player1.hand.length + activeP1FieldCount;
+  const p2LiveForces = gameState.player2.hand.length + activeP2FieldCount;
+  const totalLiveForces = Math.max(1, p1LiveForces + p2LiveForces);
+  const p1ForcePct = Math.round((p1LiveForces / totalLiveForces) * 100);
+  const isP1Resistance = gameState.player1.side === 'resistance';
+
+  // Round-end summary counts
+  const p1RoundLosses = isEnded
+    ? player1BattleCards.filter(
+        (c) => c.isDestroyed || (!c.isEvacuated && c.card.isSingleUse)
+      ).length
+    : 0;
+  const p2RoundLosses = isEnded
+    ? player2BattleCards.filter(
+        (c) => c.isDestroyed || (!c.isEvacuated && c.card.isSingleUse)
+      ).length
+    : 0;
 
   return (
     <div className="h-dvh w-screen overflow-hidden bg-[#090b0e] text-[#e6dac9] flex flex-col font-sans select-none">
@@ -1586,13 +2303,13 @@ export default function App() {
               value={`${String(gameState.roundNumber).padStart(2, '0')}/${MAX_BATTLE_ROUNDS}`}
               size="xs"
               className={
-                gameState.roundNumber >= MAX_BATTLE_ROUNDS - 1
-                  ? 'border-[#b84039]'
+                gameState.roundNumber >= MAX_BATTLE_ROUNDS - 2
+                  ? 'border-[#d64a42] shadow-[0_0_10px_rgba(232,68,58,0.45)]'
                   : ''
               }
             />
           </div>
-          <span className="text-[11px] font-led text-[#8e9aa7] hidden sm:inline shrink-0 uppercase tracking-wider">
+          <span className="text-[11px] font-led text-[#99a6b3] hidden xl:inline shrink-0 uppercase tracking-wider">
             ·{' '}
             {gameState.campaign
               ? getCampaignStage(
@@ -1603,6 +2320,56 @@ export default function App() {
               ? 'Против бота'
               : '2 игрока'}
           </span>
+        </div>
+
+        {/* Center Live Force Balance Gauge */}
+        <div
+          title={`Соотношение оставшихся карт: Вы (${p1LiveForces}) против противника (${p2LiveForces})`}
+          className="hidden md:flex items-center gap-2.5 px-2.5 py-1 rounded-[4px] bg-[#0c1015]/90 border border-[#2a333d] shrink-0"
+        >
+          <div className="flex items-center gap-1.5 text-xs">
+            <span
+              className={`font-display uppercase tracking-[0.06em] ${
+                isP1Resistance ? 'text-[#84d2ea]' : 'text-[#ef7c6b]'
+              }`}
+            >
+              Вы
+            </span>
+            <span className="font-led font-bold text-[#f2eae0] tabular-nums">
+              {p1LiveForces}
+            </span>
+          </div>
+
+          <div className="w-24 xl:w-32 h-2 rounded-[2px] bg-[#161b22] overflow-hidden flex border border-[#323c47]">
+            <div
+              style={{ width: `${p1ForcePct}%` }}
+              className={`h-full transition-all duration-300 ${
+                isP1Resistance
+                  ? 'bg-gradient-to-r from-[#2c7d96] to-[#6cd2ee]'
+                  : 'bg-gradient-to-r from-[#8f2924] to-[#e66155]'
+              }`}
+            />
+            <div
+              className={`h-full flex-1 transition-all duration-300 ${
+                isP1Resistance
+                  ? 'bg-gradient-to-l from-[#8f2924] to-[#e66155]'
+                  : 'bg-gradient-to-l from-[#2c7d96] to-[#6cd2ee]'
+              }`}
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="font-led font-bold text-[#f2eae0] tabular-nums">
+              {p2LiveForces}
+            </span>
+            <span
+              className={`font-display uppercase tracking-[0.06em] ${
+                isP1Resistance ? 'text-[#ef7c6b]' : 'text-[#84d2ea]'
+              }`}
+            >
+              Враг
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -1635,18 +2402,7 @@ export default function App() {
             </span>
           </GameButton>
 
-          <GameButton
-            variant="secondary"
-            size="xs"
-            onClick={toggleMute}
-            title={isMuted ? 'Включить звук' : 'Выключить звук'}
-          >
-            {isMuted ? (
-              <VolumeX className="w-3.5 h-3.5 text-[#8a94a0]" />
-            ) : (
-              <Volume2 className="w-3.5 h-3.5 text-[#84d2ea]" />
-            )}
-          </GameButton>
+          <AudioControlsButton />
 
           <GameButton
             variant="secondary"
@@ -1671,7 +2427,16 @@ export default function App() {
         </aside>
 
         {/* UNIFIED SEAMLESS GAME TABLE (Zero boxed zones, zero page scroll) */}
-        <div className="relative h-full min-h-0 w-full flex flex-col justify-between overflow-hidden px-2 sm:px-5 py-1.5 bg-[#090b0e]">
+        <div
+          style={
+            {
+              '--battle-speed': battleSpeed === 2 ? '0.55' : '1',
+            } as React.CSSProperties
+          }
+          className={`relative h-full min-h-0 w-full flex flex-col justify-between overflow-hidden px-2 sm:px-5 py-1.5 bg-[#090b0e] ${
+            battlefieldShaking ? 'animate-battlefield-shake' : ''
+          }`}
+        >
           {/* Battlefield background artwork — flipped 180° when Player 1 plays Dark Side */}
           <div
             aria-hidden="true"
@@ -1681,6 +2446,11 @@ export default function App() {
             className={`pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat ${
               gameState.player1.side === 'dark_side' ? 'rotate-180' : ''
             }`}
+          />
+
+          {/* Living Battlefield Rift Glow & Floating Embers */}
+          <BattlefieldAmbientLayer
+            flipped={gameState.player1.side === 'dark_side'}
           />
 
           {/* Subtle top/bottom atmospheric vignette keeping the central rift vivid */}
@@ -1695,6 +2465,7 @@ export default function App() {
             cards={gameState.player2.hand}
             selectedCardIds={gameState.player2.selectedCardIds}
             isSelectable={isP2Turn && !gameState.player2.isBot}
+            onToggleSelect={(card) => toggleCardSelect('player2', card.id)}
             onInspectCard={(card) =>
               openHandCardInspect(
                 'player2',
@@ -1705,102 +2476,170 @@ export default function App() {
             playerName={gameState.player2.name}
             playerSide={gameState.player2.side}
             discardCount={gameState.player2.discard.length}
+            discardCards={gameState.player2.discard}
             onOpenDiscard={() =>
               setDiscardModal({
                 isOpen: true,
-                title: `Сброс (${gameState.player2.name})`,
+                title: `Потери (${gameState.player2.name})`,
                 cards: gameState.player2.discard,
               })
             }
             isBot={gameState.player2.isBot}
             isOpponent={gameState.mode === 'bot' || !isP2Turn}
             isCompactBattle={isReady || isResolving || isEnded}
+            hideSelectedFromFan={isP2Turn && !gameState.player2.isBot}
           />
 
-          {/* CENTER ARENA: Open Table Felt / Opposing Battle Lines (No boxed zone, no center idle description) */}
-          <div className="flex-1 min-h-0 w-full flex flex-col items-center justify-center relative overflow-visible py-1">
-            {isReady ? (
-              <div className="w-full flex flex-col items-center justify-center gap-1.5 sm:gap-3">
-                {/* Top Line: Player 2 Hidden Cards (Left to Right) */}
-                <div className="w-full flex flex-col items-center gap-1">
+          {/* CENTER ARENA: Open Table Felt / Opposing Battle Lines + Trajectory VFX */}
+          <div
+            ref={arenaRef}
+            className="flex-1 min-h-0 w-full flex flex-col items-center justify-center relative overflow-visible py-1"
+          >
+            {/* Non-Blocking Slim Top-Center Turn Ticker (never obscures cards or staging slots) */}
+            {turnBanner && (
+              <div
+                key={turnBanner.key}
+                className="pointer-events-none absolute top-0.5 left-1/2 -translate-x-1/2 z-50 px-3"
+              >
+                <div
+                  className={`animate-turn-ticker flex items-center gap-2 px-3.5 py-1 rounded-[4px] bg-[#0d1218]/94 border backdrop-blur-sm shadow-[0_6px_22px_rgba(0,0,0,0.85)] whitespace-nowrap ${
+                    turnBanner.side === 'dark_side'
+                      ? 'border-[#cf4d42]/80'
+                      : 'border-[#5fbcd9]/80'
+                  }`}
+                >
                   <span
-                    className={`px-2.5 py-0.5 rounded-[3px] steel-bar border-l-2 ${
-                      gameState.player2.side === 'resistance'
-                        ? 'border-l-[#67c2de] text-[#d9eff7]'
-                        : 'border-l-[#d94b3b] text-[#f0d9d5]'
-                    } text-[10px] sm:text-[11px] font-display font-semibold uppercase tracking-[0.09em]`}
+                    className={`font-display text-xs sm:text-sm font-bold uppercase tracking-[0.09em] ${
+                      turnBanner.side === 'dark_side'
+                        ? 'text-[#f59082]'
+                        : 'text-[#8ad9f2]'
+                    }`}
                   >
-                    {gameState.player2.name}
+                    {turnBanner.title}
                   </span>
-                  <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-4 justify-center">
-                    {gameState.player2.selectedCardIds.map((id, idx) => (
-                      <div key={`p2-ready-${idx}`} className="animate-card-deal">
-                        <CardView
-                          card={gameState.player2.hand.find((c) => c.id === id)!}
-                          size="battle"
-                          isFaceDown={true}
-                          isRevealed={false}
-                        />
-                      </div>
-                    ))}
+                  {turnBanner.subtitle && (
+                    <>
+                      <span aria-hidden="true" className="text-[#5a6674]">
+                        ·
+                      </span>
+                      <span className="text-xs text-[#dde4ec] font-medium">
+                        {turnBanner.subtitle}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Archetype Source-to-Target Trajectory VFX SVG Layer */}
+            <BattleVfxLayer vfx={activeVfx} />
+
+            {isReady ? (
+              <div className="w-full grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(256px,1fr)] items-center gap-y-2.5 lg:gap-y-0 relative overflow-visible">
+                <RiftDivider
+                  direction="full"
+                  className="hidden lg:block pointer-events-none absolute inset-x-4 top-1/2 -translate-y-1/2 z-0 opacity-90"
+                />
+                <div aria-hidden="true" className="hidden lg:block" />
+
+                {/* Center Stage: Hidden Opposing Cards */}
+                <div className="flex flex-col items-center justify-center gap-2 sm:gap-3.5 relative z-10 overflow-visible">
+                  {/* Top Line: Player 2 Hidden Cards (Left to Right) */}
+                  <div className="flex flex-col items-center gap-1">
+                    <span
+                      className={`px-3 py-0.5 rounded-[3px] steel-bar text-[11px] font-display font-semibold uppercase tracking-[0.09em] ${
+                        gameState.player2.side === 'resistance'
+                          ? 'text-[#9bdcf0] border-[#3a687a]'
+                          : 'text-[#f29d94] border-[#6e3136]'
+                      }`}
+                    >
+                      {gameState.player2.name}
+                    </span>
+                    <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-4 justify-center">
+                      {gameState.player2.selectedCardIds.map((id, idx) => (
+                        <div key={`p2-ready-${idx}`} className="animate-card-deal">
+                          <CardView
+                            card={gameState.player2.hand.find((c) => c.id === id)!}
+                            size="battle"
+                            isFaceDown={true}
+                            isRevealed={false}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Clean Unobstructed Center Rift Seam */}
+                  <div className="w-full min-w-[240px] sm:min-w-[420px] flex items-center justify-center py-0.5 sm:py-1">
+                    <RiftDivider className="w-full lg:opacity-0" />
+                  </div>
+
+                  {/* Bottom Line: Player 1 Hidden Cards (Left to Right) */}
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-4 justify-center">
+                      {gameState.player1.selectedCardIds.map((id, idx) => (
+                        <div key={`p1-ready-${idx}`} className="animate-card-deal">
+                          <CardView
+                            card={gameState.player1.hand.find((c) => c.id === id)!}
+                            size="battle"
+                            isFaceDown={true}
+                            isRevealed={false}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <span
+                      className={`px-3 py-0.5 rounded-[3px] steel-bar text-[11px] font-display font-semibold uppercase tracking-[0.09em] ${
+                        gameState.player1.side === 'resistance'
+                          ? 'text-[#9bdcf0] border-[#3a687a]'
+                          : 'text-[#f29d94] border-[#6e3136]'
+                      }`}
+                    >
+                      {gameState.player1.name} (Вы)
+                    </span>
                   </div>
                 </div>
 
-                {/* Center VS Divider + Reveal Button */}
-                <div className="w-full flex items-center justify-center gap-3 py-0.5">
-                  <RiftDivider direction="left" className="flex-1" />
+                {/* Right Battlefield Command Flank: Reveal Button */}
+                <div className="flex items-center justify-center lg:justify-start lg:pl-5 xl:pl-10 z-30">
                   <GameButton
                     variant="primary"
                     size="lg"
                     withOrnaments
                     onClick={handleStartBattle}
+                    className="min-w-[216px]"
                   >
                     <Swords className="w-4 h-4" />
                     <span>Вскрыть карты</span>
                   </GameButton>
-                  <RiftDivider direction="right" className="flex-1" />
-                </div>
-
-                {/* Bottom Line: Player 1 Hidden Cards (Left to Right) */}
-                <div className="w-full flex flex-col items-center gap-1">
-                  <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-4 justify-center">
-                    {gameState.player1.selectedCardIds.map((id, idx) => (
-                      <div key={`p1-ready-${idx}`} className="animate-card-deal">
-                        <CardView
-                          card={gameState.player1.hand.find((c) => c.id === id)!}
-                          size="battle"
-                          isFaceDown={true}
-                          isRevealed={false}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-[3px] steel-bar border-l-2 ${
-                      gameState.player1.side === 'resistance'
-                        ? 'border-l-[#67c2de] text-[#d9eff7]'
-                        : 'border-l-[#d94b3b] text-[#f0d9d5]'
-                    } text-[10px] sm:text-[11px] font-display font-semibold uppercase tracking-[0.09em]`}
-                  >
-                    {gameState.player1.name} (Вы)
-                  </span>
                 </div>
               </div>
             ) : isResolving || isEnded ? (
-              <div className="w-full flex flex-col items-center justify-center gap-1.5 sm:gap-2.5 relative overflow-visible">
-                {/* Top Line: Player 2 Cards (Left to Right) */}
+              <div className="w-full grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(256px,1fr)] items-center gap-y-2.5 lg:gap-y-0 relative overflow-visible">
+                <RiftDivider
+                  direction="full"
+                  className="hidden lg:block pointer-events-none absolute inset-x-4 top-1/2 -translate-y-1/2 z-0 opacity-90"
+                />
+                <div aria-hidden="true" className="hidden lg:block" />
+
+                {/* Center Stage: Unobstructed Opposing Battle Lines */}
+                <div className="flex flex-col items-center justify-center gap-2 sm:gap-3 relative z-10 overflow-visible">
+                  {/* Top Line: Player 2 Cards (Left to Right) */}
                 <div className="w-full flex flex-col items-center gap-0.5 sm:gap-1 overflow-visible">
                   <span
-                    className={`px-2.5 py-0.5 rounded-[3px] steel-bar border-l-2 ${
+                    className={`px-3 py-0.5 rounded-[3px] steel-bar text-[11px] font-display font-semibold uppercase tracking-[0.09em] ${
                       gameState.player2.side === 'resistance'
-                        ? 'border-l-[#67c2de] text-[#d9eff7]'
-                        : 'border-l-[#d94b3b] text-[#f0d9d5]'
-                    } text-[10px] sm:text-[11px] font-display font-semibold uppercase tracking-[0.09em]`}
+                        ? 'text-[#9bdcf0] border-[#3a687a]'
+                        : 'text-[#f29d94] border-[#6e3136]'
+                    }`}
                   >
                     {gameState.player2.name}
                   </span>
                   <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-4 justify-center items-center overflow-visible">
-                    {player2BattleCards.map((bCard) => {
+                    {player2BattleCards.map((bCard, idx) => {
+                      const queueIdx = gameState.activeBattleQueue.findIndex(
+                        (c) => c.instanceId === bCard.instanceId
+                      );
                       const isActing =
                         isResolving &&
                         !activeAnimation &&
@@ -1820,6 +2659,15 @@ export default function App() {
                         activeAnimation?.showImpactOverlay &&
                           activeAnimation.shieldTargetIds.includes(bCard.instanceId)
                       );
+                      const roundEndFate = isEnded
+                        ? bCard.isDestroyed
+                          ? undefined
+                          : bCard.isEvacuated
+                          ? 'evacuated'
+                          : bCard.card.isSingleUse
+                          ? 'discard'
+                          : 'survive'
+                        : undefined;
 
                       return (
                         <div
@@ -1827,21 +2675,30 @@ export default function App() {
                           ref={(el) => {
                             cardRefs.current[bCard.instanceId] = el;
                           }}
-                          className={`animate-card-deal overflow-visible ${
-                            isThisAnimating ? 'relative z-50' : 'relative z-10'
-                          }`}
+                          className={`overflow-visible ${
+                            isFlippingReveal ? '' : 'animate-card-deal'
+                          } ${isThisAnimating ? 'relative z-50' : 'relative z-10'}`}
                         >
                           <CardView
                             card={bCard.card}
                             size="battle"
+                            isFlippingReveal={isFlippingReveal}
+                            flipDelayMs={idx * 70}
                             isCurrentActor={isActing}
                             turnDirection="down"
+                            turnOrderNumber={queueIdx >= 0 ? queueIdx + 1 : undefined}
+                            isTurnCompleted={
+                              isEnded ||
+                              (queueIdx >= 0 && queueIdx < gameState.currentTurnIndex)
+                            }
+                            roundEndFate={roundEndFate}
                             activeAnimationClass={animClass}
                             activeAnimationStyle={
                               isThisAnimating ? activeAnimation.style : undefined
                             }
                             isImpactTarget={isImpact}
                             isShieldTarget={isShield}
+                            combatCallout={cardCallouts[bCard.instanceId]}
                             isDestroyed={bCard.isDestroyed}
                             isDisabled={bCard.isDisabled}
                             isCancelled={bCard.isCancelled}
@@ -1859,149 +2716,41 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Center Line: Combat Controls + Center-Stage Radial Burst Anchor */}
+                {/* Center Line: Clean Cast Core Anchor & Rift Seam (unobstructed by buttons) */}
                 <div
                   ref={battlefieldCenterRef}
-                  className="w-full flex items-center justify-center gap-2 sm:gap-3 py-0.5 relative overflow-visible"
+                  className="w-full min-w-[240px] sm:min-w-[440px] flex items-center justify-center py-1 sm:py-2 relative overflow-visible"
                 >
-                  {/* Radial Energy Beams & Shockwaves during Center Cast */}
+                  {/* Subtle Core Shockwave synced with BattleVfxLayer during Center Cast */}
                   {activeAnimation?.mode === 'center_cast' && (() => {
-                    const theme = THEME_COLORS[activeAnimation.effectTheme];
-                    const rayAngles = Array.from({ length: 12 }, (_, i) => i * 30);
-                    const needleAngles = Array.from({ length: 12 }, (_, i) => i * 30 + 15);
+                    const theme = VFX_THEME_PALETTE[activeAnimation.effectTheme];
                     return (
                       <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 flex items-center justify-center">
                         <div
-                          className="w-56 h-56 rounded-full blur-2xl animate-shockwave"
+                          className="w-44 h-44 rounded-full blur-2xl animate-shockwave"
                           style={{ backgroundColor: theme.glow }}
                         />
                         <div
-                          className="absolute w-44 h-44 rounded-full border-2 animate-shockwave"
+                          className="absolute w-32 h-32 rounded-full border-2 animate-shockwave"
                           style={{
                             borderColor: theme.primary,
-                            boxShadow: `0 0 28px ${theme.glow}`,
+                            boxShadow: `0 0 24px ${theme.glow}`,
                           }}
                         />
-                        <div
-                          className="absolute w-32 h-32 rounded-full border animate-shockwave"
-                          style={{
-                            borderColor: theme.core,
-                            animationDelay: '130ms',
-                          }}
-                        />
-                        <svg
-                          viewBox="-220 -220 440 440"
-                          className="absolute w-[320px] h-[320px] sm:w-[440px] sm:h-[440px] animate-rays-burst overflow-visible"
-                          style={{
-                            filter: `drop-shadow(0 0 12px ${theme.primary})`,
-                          }}
-                        >
-                          <circle
-                            cx="0"
-                            cy="0"
-                            r="54"
-                            fill="none"
-                            stroke={theme.core}
-                            strokeWidth="2.5"
-                            strokeDasharray="10 8"
-                            opacity="0.85"
-                          />
-                          {rayAngles.map((deg) => (
-                            <g key={`ray-${deg}`} transform={`rotate(${deg})`}>
-                              <polygon
-                                points="-5,38 5,38 1.5,205 -1.5,205"
-                                fill={theme.primary}
-                                opacity="0.85"
-                              />
-                              <line
-                                x1="0"
-                                y1="42"
-                                x2="0"
-                                y2="195"
-                                stroke={theme.core}
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                opacity="0.95"
-                              />
-                            </g>
-                          ))}
-                          {needleAngles.map((deg) => (
-                            <line
-                              key={`needle-${deg}`}
-                              x1="0"
-                              y1="52"
-                              x2="0"
-                              y2="165"
-                              transform={`rotate(${deg})`}
-                              stroke={theme.secondary}
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              opacity="0.78"
-                            />
-                          ))}
-                        </svg>
                       </div>
                     );
                   })()}
 
-                  <RiftDivider direction="left" className="flex-1" />
-                  <div
-                    className={`flex items-center justify-center gap-2 shrink-0 z-20 transition-opacity duration-200 ${
-                      activeAnimation ? 'opacity-20 pointer-events-none' : 'opacity-100'
-                    }`}
-                  >
-                    {isResolving && (
-                      <>
-                        <GameButton
-                          variant="primary"
-                          size="md"
-                          withOrnaments
-                          onClick={triggerNextTurn}
-                          disabled={Boolean(activeAnimation)}
-                        >
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>Следующий ход</span>
-                        </GameButton>
-
-                        <GameButton
-                          variant={autoPlay ? 'emerald' : 'secondary'}
-                          size="md"
-                          onClick={() => setAutoPlay(!autoPlay)}
-                        >
-                          <FastForward className="w-3.5 h-3.5" />
-                          <span>{autoPlay ? 'Авто: ВКЛ' : 'Авто-бой'}</span>
-                        </GameButton>
-                      </>
-                    )}
-
-                    {isEnded && (() => {
-                      const willEndMatch =
-                        gameState.player1.hand.length === 0 ||
-                        gameState.player2.hand.length === 0 ||
-                        gameState.roundNumber >= MAX_BATTLE_ROUNDS;
-
-                      return (
-                        <GameButton
-                          variant={willEndMatch ? 'primary' : 'emerald'}
-                          size="lg"
-                          withOrnaments
-                          onClick={handleNextRound}
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          <span>
-                            {willEndMatch ? 'Итог битвы' : 'Следующий бой'}
-                          </span>
-                        </GameButton>
-                      );
-                    })()}
-                  </div>
-                  <RiftDivider direction="right" className="flex-1" />
+                  <RiftDivider className="w-full lg:opacity-0" />
                 </div>
 
                 {/* Bottom Line: Player 1 Cards (Left to Right) */}
                 <div className="w-full flex flex-col items-center gap-0.5 sm:gap-1 overflow-visible">
                   <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-4 justify-center items-center overflow-visible">
-                    {player1BattleCards.map((bCard) => {
+                    {player1BattleCards.map((bCard, idx) => {
+                      const queueIdx = gameState.activeBattleQueue.findIndex(
+                        (c) => c.instanceId === bCard.instanceId
+                      );
                       const isActing =
                         isResolving &&
                         !activeAnimation &&
@@ -2021,6 +2770,15 @@ export default function App() {
                         activeAnimation?.showImpactOverlay &&
                           activeAnimation.shieldTargetIds.includes(bCard.instanceId)
                       );
+                      const roundEndFate = isEnded
+                        ? bCard.isDestroyed
+                          ? undefined
+                          : bCard.isEvacuated
+                          ? 'evacuated'
+                          : bCard.card.isSingleUse
+                          ? 'discard'
+                          : 'survive'
+                        : undefined;
 
                       return (
                         <div
@@ -2028,21 +2786,30 @@ export default function App() {
                           ref={(el) => {
                             cardRefs.current[bCard.instanceId] = el;
                           }}
-                          className={`animate-card-deal overflow-visible ${
-                            isThisAnimating ? 'relative z-50' : 'relative z-10'
-                          }`}
+                          className={`overflow-visible ${
+                            isFlippingReveal ? '' : 'animate-card-deal'
+                          } ${isThisAnimating ? 'relative z-50' : 'relative z-10'}`}
                         >
                           <CardView
                             card={bCard.card}
                             size="battle"
+                            isFlippingReveal={isFlippingReveal}
+                            flipDelayMs={(player2BattleCards.length + idx) * 65}
                             isCurrentActor={isActing}
                             turnDirection="up"
+                            turnOrderNumber={queueIdx >= 0 ? queueIdx + 1 : undefined}
+                            isTurnCompleted={
+                              isEnded ||
+                              (queueIdx >= 0 && queueIdx < gameState.currentTurnIndex)
+                            }
+                            roundEndFate={roundEndFate}
                             activeAnimationClass={animClass}
                             activeAnimationStyle={
                               isThisAnimating ? activeAnimation.style : undefined
                             }
                             isImpactTarget={isImpact}
                             isShieldTarget={isShield}
+                            combatCallout={cardCallouts[bCard.instanceId]}
                             isDestroyed={bCard.isDestroyed}
                             isDisabled={bCard.isDisabled}
                             isCancelled={bCard.isCancelled}
@@ -2062,54 +2829,252 @@ export default function App() {
                     })}
                   </div>
                   <span
-                    className={`px-2.5 py-0.5 rounded-[3px] steel-bar border-l-2 ${
+                    className={`px-3 py-0.5 rounded-[3px] steel-bar text-[11px] font-display font-semibold uppercase tracking-[0.09em] ${
                       gameState.player1.side === 'resistance'
-                        ? 'border-l-[#67c2de] text-[#d9eff7]'
-                        : 'border-l-[#d94b3b] text-[#f0d9d5]'
-                    } text-[10px] sm:text-[11px] font-display font-semibold uppercase tracking-[0.09em]`}
+                        ? 'text-[#9bdcf0] border-[#3a687a]'
+                        : 'text-[#f29d94] border-[#6e3136]'
+                    }`}
                   >
                     {gameState.player1.name} (Вы)
                   </span>
                 </div>
+                </div>
+
+                {/* Right Battlefield Command Flank: Combat Step, Auto-Battle, Speed & Round Advance */}
+                <div className="flex flex-col items-center lg:items-start justify-center lg:pl-5 xl:pl-10 z-30">
+                  {isResolving && (
+                    <div className="flex flex-row flex-wrap lg:flex-col items-center lg:items-stretch justify-center gap-2 w-auto lg:w-[236px]">
+                      <div className="lg:w-full">
+                        <GameButton
+                          variant="primary"
+                          size="md"
+                          withOrnaments
+                          fullWidth
+                          onClick={triggerNextTurn}
+                          disabled={Boolean(activeAnimation)}
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Следующий ход</span>
+                        </GameButton>
+                      </div>
+
+                      <div className="flex items-center gap-2 lg:w-full">
+                        <div className="lg:flex-1">
+                          <GameButton
+                            variant={autoPlay ? 'emerald' : 'secondary'}
+                            size="sm"
+                            fullWidth
+                            onClick={() => {
+                              sound.playUiClick();
+                              setAutoPlay(!autoPlay);
+                            }}
+                          >
+                            <FastForward className="w-3.5 h-3.5" />
+                            <span>{autoPlay ? 'Авто: ВКЛ' : 'Авто-бой'}</span>
+                          </GameButton>
+                        </div>
+
+                        <GameButton
+                          variant={battleSpeed === 2 ? 'primary' : 'secondary'}
+                          size="sm"
+                          onClick={() => {
+                            sound.playUiClick();
+                            setBattleSpeed((prev) => (prev === 1 ? 2 : 1));
+                          }}
+                          title="Переключить скорость анимаций боя (1× / 2×)"
+                        >
+                          <Gauge className="w-3.5 h-3.5" />
+                          <span className="font-led tabular-nums">
+                            {battleSpeed}×
+                          </span>
+                        </GameButton>
+                      </div>
+                    </div>
+                  )}
+
+                  {isEnded && (() => {
+                    const willEndMatch =
+                      gameState.player1.hand.length === 0 ||
+                      gameState.player2.hand.length === 0 ||
+                      gameState.roundNumber >= MAX_BATTLE_ROUNDS;
+
+                    return (
+                      <div className="flex flex-row flex-wrap lg:flex-col items-center lg:items-stretch justify-center gap-2 lg:w-[236px]">
+                        <div className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-[4px] bg-[#0e131a]/92 border border-[#323d4a] text-xs">
+                          <span className="font-display uppercase tracking-[0.06em] text-[#aebac6]">
+                            Потери:
+                          </span>
+                          <span className="font-led text-[#8ad1ea] tabular-nums">
+                            Вы −{p1RoundLosses}
+                          </span>
+                          <span className="text-[#566370]">·</span>
+                          <span className="font-led text-[#f07c6d] tabular-nums">
+                            Враг −{p2RoundLosses}
+                          </span>
+                        </div>
+                        <div className="lg:w-full">
+                          <GameButton
+                            variant={willEndMatch ? 'primary' : 'emerald'}
+                            size="lg"
+                            withOrnaments
+                            fullWidth
+                            onClick={handleNextRound}
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            <span>
+                              {willEndMatch ? 'Итог битвы' : 'Следующий бой'}
+                            </span>
+                          </GameButton>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-            ) : (
-              /* Center Selection Confirm Line */
-              <div
-                className={`w-full flex items-center justify-center gap-3 transition-opacity duration-200 ${
-                  turnBanner ? 'opacity-25' : 'opacity-100'
-                }`}
-              >
-                <RiftDivider direction="left" className="flex-1" />
-                {isP1Turn ? (
-                  <GameButton
-                    variant="primary"
-                    size="lg"
-                    withOrnaments
-                    disabled={!canConfirmP1}
-                    onClick={handleP1Confirm}
-                  >
-                    <Swords className="w-4 h-4" />
-                    <span>
-                      В бой ({gameState.player1.selectedCardIds.length}/{maxSelectP1})
+            ) : (() => {
+              const activePlayerId: 'player1' | 'player2' | null = isP1Turn
+                ? 'player1'
+                : isP2Turn && !gameState.player2.isBot
+                ? 'player2'
+                : null;
+              const activePlayer =
+                activePlayerId === 'player1'
+                  ? gameState.player1
+                  : activePlayerId === 'player2'
+                  ? gameState.player2
+                  : null;
+              const activeMaxSelect =
+                activePlayerId === 'player1' ? maxSelectP1 : maxSelectP2;
+              const stagedCards = activePlayer
+                ? activePlayer.selectedCardIds
+                    .map((id) => activePlayer.hand.find((c) => c.id === id))
+                    .filter((c): c is CardDefinition => Boolean(c))
+                : [];
+              const emptySlotCount = Math.max(0, activeMaxSelect - stagedCards.length);
+              const isActiveResistance = activePlayer?.side === 'resistance';
+
+              const renderStagingLine = () => {
+                if (!activePlayer || !activePlayerId) return null;
+                return (
+                  <div className="w-full flex flex-col items-center gap-1.5 sm:gap-2 overflow-visible">
+                    <span
+                      className={`px-3 py-0.5 rounded-[3px] steel-bar text-[11px] font-display font-semibold uppercase tracking-[0.08em] ${
+                        isActiveResistance
+                          ? 'text-[#a3e0f2] border-[#3a687a]'
+                          : 'text-[#f2a096] border-[#6e3136]'
+                      }`}
+                    >
+                      {stagedCards.length > 0
+                        ? `Готовы к бою · ${stagedCards.length} / ${activeMaxSelect}`
+                        : `Клик по карте в руке — в слот (до ${activeMaxSelect}) · ПКМ — осмотр`}
                     </span>
-                  </GameButton>
-                ) : isP2Turn && !gameState.player2.isBot ? (
-                  <GameButton
-                    variant="crimson"
-                    size="lg"
-                    withOrnaments
-                    disabled={!canConfirmP2}
-                    onClick={handleP2Confirm}
-                  >
-                    <Swords className="w-4 h-4" />
-                    <span>
-                      В бой ({gameState.player2.selectedCardIds.length}/{maxSelectP2})
-                    </span>
-                  </GameButton>
-                ) : null}
-                <RiftDivider direction="right" className="flex-1" />
-              </div>
-            )}
+
+                    <div className="flex flex-nowrap sm:flex-wrap gap-2 sm:gap-4 justify-center items-center overflow-visible">
+                      {stagedCards.map((card, slotIdx) => (
+                        <div
+                          key={`staged-${activePlayerId}-${card.id}`}
+                          className="relative animate-card-deal group overflow-visible"
+                        >
+                          <CardView
+                            card={card}
+                            size="battle"
+                            isFaceDown={false}
+                            isRevealed={true}
+                            onClick={() =>
+                              openHandCardInspect(activePlayerId, card, true)
+                            }
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              toggleCardSelect(activePlayerId, card.id);
+                            }}
+                            className={
+                              isActiveResistance
+                                ? 'drop-shadow-[0_0_18px_rgba(103,194,222,0.58)]'
+                                : 'drop-shadow-[0_0_18px_rgba(229,77,56,0.58)]'
+                            }
+                          />
+                          <div className="pointer-events-none absolute -top-2 -left-2 btn-chamfer-sm bg-[#121921]/95 border border-[#67c2de]/80 text-[#e6f7fc] font-led font-bold w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-[10px] sm:text-[11px] shadow-md z-40">
+                            {slotIdx + 1}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleCardSelect(activePlayerId, card.id);
+                            }}
+                            title="Вернуть карту в руку"
+                            aria-label={`Убрать карту ${card.name} из выбора`}
+                            className="absolute -top-2 -right-2 z-50 w-6 h-6 btn-chamfer-sm bg-[#2c1215]/95 hover:bg-[#4a1a1f] border border-[#d65752] text-[#fce8e6] flex items-center justify-center shadow-[0_4px_12px_rgba(0,0,0,0.85)] cursor-pointer transition-transform hover:scale-110 active:scale-95"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+
+                      {Array.from({ length: emptySlotCount }).map((_, idx) => (
+                        <div
+                          key={`empty-slot-${idx}`}
+                          className={`[--card-h:clamp(124px,19.5dvh,152px)] sm:[--card-h:clamp(148px,21.5dvh,244px)] h-[var(--card-h)] w-[calc(var(--card-h)*811/1142)] rounded-xl border border-dashed ${
+                            isActiveResistance
+                              ? 'border-[#5aaec9]/38 bg-[#0c1820]/35 text-[#7cc3da]/60'
+                              : 'border-[#c2544a]/38 bg-[#1e0f12]/35 text-[#d47b72]/60'
+                          } backdrop-blur-[1px] flex flex-col items-center justify-center gap-1 select-none pointer-events-none shrink-0`}
+                        >
+                          <span className="font-led text-xs sm:text-sm font-bold tracking-widest opacity-85">
+                            0{stagedCards.length + idx + 1}
+                          </span>
+                          <span className="font-display text-[10px] uppercase tracking-[0.12em] opacity-75 text-center px-1">
+                            Слот боя
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              };
+
+              const renderConfirmButton = () => (
+                <div className="flex items-center justify-center lg:justify-start lg:pl-5 xl:pl-10 z-30">
+                  {isP1Turn ? (
+                    <GameButton
+                      variant="primary"
+                      size="lg"
+                      withOrnaments
+                      disabled={!canConfirmP1}
+                      onClick={handleP1Confirm}
+                      className="min-w-[216px]"
+                    >
+                      <Swords className="w-4 h-4" />
+                      <span>
+                        В бой ({gameState.player1.selectedCardIds.length}/{maxSelectP1})
+                      </span>
+                    </GameButton>
+                  ) : isP2Turn && !gameState.player2.isBot ? (
+                    <GameButton
+                      variant="crimson"
+                      size="lg"
+                      withOrnaments
+                      disabled={!canConfirmP2}
+                      onClick={handleP2Confirm}
+                      className="min-w-[216px]"
+                    >
+                      <Swords className="w-4 h-4" />
+                      <span>
+                        В бой ({gameState.player2.selectedCardIds.length}/{maxSelectP2})
+                      </span>
+                    </GameButton>
+                  ) : null}
+                </div>
+              );
+
+              return (
+                <div className="w-full grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(256px,1fr)] items-center gap-y-3 lg:gap-y-0 overflow-visible">
+                  <div aria-hidden="true" className="hidden lg:block" />
+                  {renderStagingLine()}
+                  {renderConfirmButton()}
+                </div>
+              );
+            })()}
           </div>
 
           {/* BOTTOM HAND: PLAYER 1 */}
@@ -2117,64 +3082,28 @@ export default function App() {
             cards={gameState.player1.hand}
             selectedCardIds={gameState.player1.selectedCardIds}
             isSelectable={isP1Turn}
+            onToggleSelect={(card) => toggleCardSelect('player1', card.id)}
             onInspectCard={(card) =>
               openHandCardInspect('player1', card, isP1Turn)
             }
             playerName={`${gameState.player1.name} (Вы)`}
             playerSide={gameState.player1.side}
             discardCount={gameState.player1.discard.length}
+            discardCards={gameState.player1.discard}
             onOpenDiscard={() =>
               setDiscardModal({
                 isOpen: true,
-                title: `Сброс (${gameState.player1.name})`,
+                title: `Потери (${gameState.player1.name})`,
                 cards: gameState.player1.discard,
               })
             }
             isOpponent={gameState.mode === 'pvp_local' && isP2Turn}
             isCompactBattle={isReady || isResolving || isEnded}
+            hideSelectedFromFan={isP1Turn}
           />
           </div>
         </div>
       </main>
-
-      {/* Center-Screen Armored Turn Announcement Banner */}
-      {turnBanner && (
-        <div
-          key={turnBanner.key}
-          className="fixed inset-0 flex items-center justify-center pointer-events-none z-40 px-4"
-        >
-          <div className="animate-turn-banner relative w-full max-w-md py-3 sm:py-4 px-6 flex flex-col items-center justify-center text-center bg-gradient-to-r from-transparent via-[#12161c]/95 to-transparent">
-            <div
-              className={`absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent ${
-                turnBanner.side === 'dark_side'
-                  ? 'via-[#e05246]/90'
-                  : 'via-[#67c2de]/90'
-              } to-transparent`}
-            />
-            <div
-              className={`font-display text-2xl sm:text-3xl font-bold uppercase tracking-[0.14em] drop-shadow-[0_3px_12px_rgba(0,0,0,0.95)] ${
-                turnBanner.side === 'dark_side'
-                  ? 'text-transparent bg-clip-text bg-gradient-to-b from-[#faeae6] via-[#eb8a73] to-[#cc463b]'
-                  : 'text-transparent bg-clip-text bg-gradient-to-b from-[#f3efe8] via-[#b8dfec] to-[#68b6d1]'
-              }`}
-            >
-              {turnBanner.title}
-            </div>
-            {turnBanner.subtitle && (
-              <div className="mt-0.5 text-xs sm:text-sm font-medium text-[#d8cec0] drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">
-                {turnBanner.subtitle}
-              </div>
-            )}
-            <div
-              className={`absolute bottom-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent ${
-                turnBanner.side === 'dark_side'
-                  ? 'via-[#e05246]/90'
-                  : 'via-[#67c2de]/90'
-              } to-transparent`}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Mobile Battle Log Drawer (only scrollable area on mobile) */}
       {mobileLogOpen && (
@@ -2255,46 +3184,114 @@ export default function App() {
           : undefined;
 
         return (
-          <GameOverModal
-            isOpen={gameState.phase === 'game_over'}
-            winnerSide={
-              gameState.winner === 'player1'
-                ? gameState.player1.side
-                : gameState.player2.side
-            }
-            winnerName={
-              gameState.winner === 'player1'
-                ? gameState.player1.name
-                : gameState.player2.name
-            }
-            loserName={
-              gameState.winner === 'player1'
-                ? gameState.player2.name
-                : gameState.player1.name
-            }
-            roundsCount={gameState.historyRoundsCount}
-            defeatReason={gameState.defeatReason}
-            isCampaign={Boolean(gameState.campaign)}
-            campaignStageId={gameState.campaign?.stageId}
-            isPlayer1Winner={gameState.winner === 'player1'}
-            hasNextCampaignStage={Boolean(nextCampaignStage)}
-            onNextStage={
-              nextCampaignStage
-                ? () => handleStartCampaignStage(nextCampaignStage)
-                : undefined
-            }
-            onReturnToMap={
-              gameState.campaign ? handleReturnToCampaignMap : undefined
-            }
-            onRestart={() => {
-              if (currentCampaignStage) {
-                handleStartCampaignStage(currentCampaignStage);
-              } else {
-                handleStartNewGame(gameState.mode, gameState.player1.side);
+          <>
+            <GameOverModal
+              isOpen={gameState.phase === 'game_over' && !campaignCutscene}
+              winnerSide={
+                gameState.winner === 'player1'
+                  ? gameState.player1.side
+                  : gameState.player2.side
               }
-            }}
-            onHome={handleQuitToMenu}
-          />
+              winnerName={
+                gameState.winner === 'player1'
+                  ? gameState.player1.name
+                  : gameState.player2.name
+              }
+              loserName={
+                gameState.winner === 'player1'
+                  ? gameState.player2.name
+                  : gameState.player1.name
+              }
+              player1Name={gameState.player1.name}
+              player2Name={gameState.player2.name}
+              roundsCount={gameState.historyRoundsCount}
+              defeatReason={gameState.defeatReason}
+              isDraw={gameState.winner === null}
+              isBotMode={gameState.mode === 'bot'}
+              finalCardCounts={gameState.finalCardCounts}
+              isCampaign={Boolean(gameState.campaign)}
+              campaignStageId={gameState.campaign?.stageId}
+              isPlayer1Winner={gameState.winner === 'player1'}
+              hasNextCampaignStage={Boolean(nextCampaignStage)}
+              onNextStage={
+                nextCampaignStage
+                  ? () => handleRequestCampaignStage(nextCampaignStage)
+                  : undefined
+              }
+              onViewFinale={
+                gameState.campaign?.side === 'resistance' && !nextCampaignStage
+                  ? handleOpenFinaleCutscene
+                  : undefined
+              }
+              onReturnToMap={
+                gameState.campaign ? handleReturnToCampaignMap : undefined
+              }
+              onRestart={() => {
+                if (currentCampaignStage) {
+                  handleStartCampaignStage(currentCampaignStage);
+                } else {
+                  handleStartNewGame(gameState.mode, gameState.player1.side);
+                }
+              }}
+              onHome={handleQuitToMenu}
+            />
+
+            {campaignCutscene && (
+              <CampaignCutsceneOverlay
+                lines={campaignCutscene.lines}
+                headerKicker={
+                  campaignCutscene.kind === 'finale'
+                    ? 'Финал кампании · Победа Сопротивления'
+                    : campaignCutscene.kind === 'pre_battle'
+                    ? `${campaignCutscene.stage.actTitle} · Этап ${campaignCutscene.stage.id}`
+                    : 'Пролог · Кампания Сопротивления'
+                }
+                headerTitle={
+                  campaignCutscene.kind === 'finale'
+                    ? 'Демон повержен'
+                    : campaignCutscene.kind === 'pre_battle'
+                    ? campaignCutscene.stage.title
+                    : 'Нападение на лагерь Сопротивления'
+                }
+                finalActionLabel={
+                  campaignCutscene.kind === 'finale'
+                    ? 'К итогам победы'
+                    : campaignCutscene.kind === 'pre_battle'
+                    ? 'В бой!'
+                    : 'Продолжить'
+                }
+                finalActionVariant={
+                  campaignCutscene.kind === 'pre_battle' ? 'emerald' : 'primary'
+                }
+                finalActionIcon={
+                  campaignCutscene.kind === 'pre_battle'
+                    ? 'battle'
+                    : campaignCutscene.kind === 'finale'
+                    ? 'trophy'
+                    : 'continue'
+                }
+                cancelLabel={
+                  campaignCutscene.kind === 'pre_battle' ? 'Отмена' : undefined
+                }
+                onCancel={
+                  campaignCutscene.kind === 'pre_battle'
+                    ? () => {
+                        sound.playSelect();
+                        setCampaignCutscene(null);
+                      }
+                    : undefined
+                }
+                onComplete={() => {
+                  sound.playSelect();
+                  if (campaignCutscene.kind === 'pre_battle') {
+                    handleStartCampaignStage(campaignCutscene.stage);
+                  } else {
+                    setCampaignCutscene(null);
+                  }
+                }}
+              />
+            )}
+          </>
         );
       })()}
 
@@ -2310,7 +3307,7 @@ export default function App() {
       <CardSwapModal
         isOpen={necromancerModalOpen}
         title="Способность Некроманта"
-        description="Некромант приносит себя в жертву и уходит в сброс. Выберите существо с рангом 6 и ниже из вашего сброса, чтобы вернуть его в руку."
+        description="Выберите существо с рангом 6 и ниже из вашего сброса, чтобы вернуть его в руку. После воскрешения Некромант не погибает и остаётся на поле."
         cards={necromancerEligibleDiscard}
         onSelectCard={handleNecromancerChoice}
         skipButtonText="Не воскрешать существо"
@@ -2323,6 +3320,24 @@ export default function App() {
         cards={evacuationEligibleCards}
         onSelectCard={handleEvacuationChoice}
         skipButtonText="Ничего не делать"
+      />
+
+      <CardSwapModal
+        isOpen={coldCalcModalOpen}
+        title="Способность карты «Холодный расчёт»"
+        description="Выберите любое существо или технику из вашей руки, чтобы подменить «Холодный расчёт» прямо в бою, либо ничего не делайте. Заклинание одноразовое."
+        cards={coldCalcEligibleHand}
+        onSelectCard={handleColdCalcChoice}
+        skipButtonText="Ничего не делать"
+      />
+
+      <CardSwapModal
+        isOpen={conjurerModalOpen}
+        title="Способность Заклинателя"
+        description="Выберите, кого призвать на поле боя вместо Заклинателя — Беса или Злого духа. Заклинатель вернётся в руку, а призванный юнит вступит в бой по своей инициативе."
+        cards={conjurerAvailableSummons}
+        onSelectCard={handleConjurerChoice}
+        skipButtonText="Никого не призывать"
       />
 
       <DiscardViewerModal

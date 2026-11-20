@@ -1,6 +1,6 @@
 import background1 from '../assets/background/background_1.jpg';
 import backgroundStartMenu from '../assets/background/background_start_menu.jpg';
-import backgroundMapsV1 from '../assets/background/background_maps_v1.jpg';
+import backgroundMapsV1 from '../assets/images/campaign_tactical_map_seamless_1795180641491.jpg';
 
 export interface GameBackground {
   id: string;

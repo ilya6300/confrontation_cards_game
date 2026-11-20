@@ -1,25 +1,21 @@
 import React from 'react';
 import { CardSide } from '../types/game';
-import { START_MENU_BACKGROUND } from '../data/backgrounds';
 import { GameButton } from './GameButton';
+import { AudioControlsButton } from './AudioControlsButton';
+import { MenuBackground } from './MenuBackground';
 import { CornerRivets, LedCounter, RiftDivider } from './TacticalChrome';
-import humanBackCard from '../assets/human_back_card.png';
-import darkBackCard from '../assets/dark_back_card.png';
+import { RESISTANCE_CARD_BACK, DARK_SIDE_CARD_BACK } from '../data/cardBacks';
 import {
   Shield,
   Skull,
   Lock,
   ArrowRight,
   BookOpen,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 
 interface CampaignFactionSelectProps {
   resistanceCompletedCount: number;
   resistanceTotalStages: number;
-  isMuted: boolean;
-  onToggleMute: () => void;
   onSelectFaction: (side: CardSide) => void;
   onBackToMenu: () => void;
   onOpenRules: () => void;
@@ -28,8 +24,6 @@ interface CampaignFactionSelectProps {
 export const CampaignFactionSelect: React.FC<CampaignFactionSelectProps> = ({
   resistanceCompletedCount,
   resistanceTotalStages,
-  isMuted,
-  onToggleMute,
   onSelectFaction,
   onBackToMenu,
   onOpenRules,
@@ -37,15 +31,7 @@ export const CampaignFactionSelect: React.FC<CampaignFactionSelectProps> = ({
   return (
     <div className="relative h-dvh w-screen overflow-hidden bg-[#090b0e] text-[#e6dac9] flex flex-col select-none">
       {/* Background artwork */}
-      <div
-        aria-hidden="true"
-        style={{ backgroundImage: `url(${START_MENU_BACKGROUND})` }}
-        className="pointer-events-none absolute -inset-4 bg-cover bg-center bg-no-repeat brightness-[1.06] animate-menu-bg-drift"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(8,10,14,0.42)_0%,rgba(6,8,12,0.68)_72%,rgba(4,5,7,0.82)_100%)]"
-      />
+      <MenuBackground tone="dim" />
 
       {/* Slim Brushed-Steel Command Bar */}
       <header className="relative z-20 h-11 px-3 sm:px-4 steel-bar border-x-0 border-t-0 border-b-[#343d47] flex items-center justify-between gap-2 shrink-0">
@@ -60,18 +46,7 @@ export const CampaignFactionSelect: React.FC<CampaignFactionSelectProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <GameButton
-            variant="secondary"
-            size="xs"
-            onClick={onToggleMute}
-            title={isMuted ? 'Включить звук' : 'Выключить звук'}
-          >
-            {isMuted ? (
-              <VolumeX className="w-3.5 h-3.5 text-[#8a94a0]" />
-            ) : (
-              <Volume2 className="w-3.5 h-3.5 text-[#84d2ea]" />
-            )}
-          </GameButton>
+          <AudioControlsButton />
           <GameButton variant="secondary" size="xs" onClick={onOpenRules}>
             <BookOpen className="w-3.5 h-3.5 text-[#d9c9b4]" />
             <span className="hidden sm:inline">Правила</span>
@@ -120,16 +95,16 @@ export const CampaignFactionSelect: React.FC<CampaignFactionSelectProps> = ({
                     </div>
                   </div>
                   <img
-                    src={humanBackCard}
+                    src={RESISTANCE_CARD_BACK}
                     alt="Рубашка карт Сопротивления"
                     referrerPolicy="no-referrer"
                     draggable={false}
-                    className="w-11 h-16 object-contain rounded-[4px] border border-[#4c6f7e]/70 shadow-[0_6px_14px_rgba(0,0,0,0.7)] shrink-0"
+                    className="w-12 h-[72px] object-cover rounded-[4px] border border-[#5a8699]/80 shadow-[0_6px_14px_rgba(0,0,0,0.75)] shrink-0"
                   />
                 </div>
 
                 <p className="text-xs sm:text-sm text-[#c4cfd9] leading-relaxed">
-                  Возглавьте защитников рубежа от первого разведывательного отряда до решающего штурма Цитадели Тьмы с полным арсеналом людей, науки и техники.
+                  Сюжетная кампания из {resistanceTotalStages} этапов: от нападения Демона на лагерь Сопротивления через встречу с Вампиром и призраками до скрытного прорыва к Разлому и финальной битвы с Боевыми роботами.
                 </p>
 
                 <div className="p-3 rounded-[4px] steel-recessed flex items-center justify-between gap-2 text-xs">
@@ -184,11 +159,11 @@ export const CampaignFactionSelect: React.FC<CampaignFactionSelectProps> = ({
                     </div>
                   </div>
                   <img
-                    src={darkBackCard}
+                    src={DARK_SIDE_CARD_BACK}
                     alt="Рубашка карт Тёмной стороны"
                     referrerPolicy="no-referrer"
                     draggable={false}
-                    className="w-11 h-16 object-contain rounded-[4px] border border-[#542c30]/60 shadow-[0_6px_14px_rgba(0,0,0,0.7)] grayscale opacity-60 shrink-0"
+                    className="w-12 h-[72px] object-cover rounded-[4px] border border-[#6e2d35]/70 shadow-[0_6px_14px_rgba(0,0,0,0.75)] grayscale opacity-65 shrink-0"
                   />
                 </div>
 

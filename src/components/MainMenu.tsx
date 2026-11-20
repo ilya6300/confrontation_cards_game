@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { GameMode, CardSide } from '../types/game';
+import { getCardsBySide } from '../data/cards';
 import { GameButton } from './GameButton';
+import { AudioControlsButton } from './AudioControlsButton';
+import { MenuBackground } from './MenuBackground';
 import { CornerRivets, RiftDivider } from './TacticalChrome';
-import { START_MENU_BACKGROUND } from '../data/backgrounds';
+import { sound } from '../utils/sound';
 import {
   Skull,
   Swords,
@@ -12,6 +15,7 @@ import {
   Play,
   Shield,
   Map as MapIcon,
+  Layers,
 } from 'lucide-react';
 
 interface MainMenuProps {
@@ -20,6 +24,7 @@ interface MainMenuProps {
   campaignCompletedCount: number;
   campaignTotalStages: number;
   onOpenCampaign: () => void;
+  onOpenCardsCatalog: () => void;
   onNewGame: (mode: GameMode, playerSide: CardSide) => void;
   onResumeGame: () => void;
   onOpenRules: () => void;
@@ -31,60 +36,69 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   campaignCompletedCount,
   campaignTotalStages,
   onOpenCampaign,
+  onOpenCardsCatalog,
   onNewGame,
   onResumeGame,
   onOpenRules,
 }) => {
   const [showBattleSetup, setShowBattleSetup] = useState(false);
   const [selectedSide, setSelectedSide] = useState<CardSide>('resistance');
+  const resistanceCount = getCardsBySide('resistance').length;
+  const darkSideCount = getCardsBySide('dark_side').length;
+  const campaignPct =
+    campaignTotalStages > 0
+      ? Math.round((campaignCompletedCount / campaignTotalStages) * 100)
+      : 0;
 
   return (
-    <div className="relative h-dvh w-full flex flex-col items-center justify-center p-3 sm:p-4 overflow-hidden bg-[#090b0e] text-[#e6dac9]">
-      {/* Start Menu Artwork Background — brightened with subtle multi-directional drift */}
+    <div className="relative h-dvh w-full flex flex-col items-center lg:items-start justify-center p-4 sm:p-6 lg:pl-14 xl:pl-24 overflow-hidden bg-[#090b0e] text-[#e6dac9]">
+      {/* Brightened Start Menu Artwork with ultra-smooth multi-directional sinusoidal drift */}
+      <MenuBackground tone="bright" />
+
+      {/* Directional left-to-right scrim on desktop: crisp text contrast on the left rail while leaving the Mech vs Demon battle art wide open on the right */}
       <div
         aria-hidden="true"
-        style={{ backgroundImage: `url(${START_MENU_BACKGROUND})` }}
-        className="pointer-events-none absolute -inset-4 bg-cover bg-center bg-no-repeat brightness-[1.14] contrast-[1.04] animate-menu-bg-drift"
+        className="pointer-events-none hidden lg:block absolute inset-0 z-[1] bg-gradient-to-r from-[#06080c]/92 via-[#06080c]/62 via-[42%] to-transparent"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none lg:hidden absolute inset-0 z-[1] bg-gradient-to-b from-[#06080c]/55 via-[#06080c]/30 to-[#06080c]/75"
       />
 
-      {/* Light atmospheric edge scrim keeping the artwork bright and vivid while preserving text legibility */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(8,10,14,0.14)_0%,rgba(7,9,13,0.32)_66%,rgba(5,6,9,0.58)_100%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#07090d]/42 via-transparent to-[#06080b]/58"
-      />
+      {/* Top-Right Compact Audio Mixer Control */}
+      <div className="absolute top-3.5 right-3.5 sm:top-5 sm:right-6 z-30">
+        <AudioControlsButton showLabel />
+      </div>
 
-      {/* Main Container */}
-      <div className="relative z-10 w-full max-w-lg flex flex-col items-center text-center">
+      {/* Main Command Rail */}
+      <div className="relative z-10 w-full max-w-md lg:max-w-[440px] flex flex-col items-center lg:items-start text-center lg:text-left">
         {/* Title Lockup */}
-        <div className="mb-6 sm:mb-7 w-full flex flex-col items-center">
-          <div className="flex items-center justify-center gap-3 w-full max-w-xs mb-2">
-            <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[#6e7b88]/70" />
-            <span className="font-led text-[10px] sm:text-[11px] font-semibold tracking-[0.22em] text-[#c5ced8] uppercase drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)]">
-              Карточная стратегия
+        <div className="mb-5 sm:mb-6 w-full flex flex-col items-center lg:items-start">
+          <div className="flex items-center justify-center lg:justify-start gap-2.5 w-full max-w-xs mb-2">
+            <span className="h-px w-8 bg-gradient-to-r from-transparent to-[#73c4dc]/80 lg:hidden" />
+            <span className="h-px w-6 bg-[#73c4dc]/80 hidden lg:inline-block" />
+            <span className="font-led text-[11px] font-semibold tracking-[0.2em] text-[#cdd7e1] uppercase drop-shadow-[0_1px_5px_rgba(0,0,0,0.95)]">
+              Тактическая карточная дуэль
             </span>
-            <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[#a85534]/70" />
+            <span className="h-px w-8 bg-gradient-to-l from-transparent to-[#d16a45]/80 lg:hidden" />
           </div>
 
-          <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold tracking-[0.11em] uppercase text-transparent bg-clip-text bg-gradient-to-b from-[#f8f0e4] via-[#dfd0bc] to-[#988a7a] drop-shadow-[0_4px_18px_rgba(0,0,0,0.98)]">
+          <h1 className="font-display text-4xl sm:text-5xl xl:text-[56px] leading-[0.98] font-bold tracking-[0.09em] uppercase text-transparent bg-clip-text bg-gradient-to-b from-[#faf3e9] via-[#e2d3bf] to-[#9b8d7d] drop-shadow-[0_5px_20px_rgba(0,0,0,0.98)]">
             ПРОТИВОСТОЯНИЕ
           </h1>
 
           <RiftDivider className="w-64 sm:w-80 my-2.5" />
 
-          <p className="font-display text-xs sm:text-sm tracking-[0.18em] uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.98)]">
+          <p className="font-display text-xs sm:text-sm tracking-[0.16em] uppercase drop-shadow-[0_2px_8px_rgba(0,0,0,0.98)]">
             <span className="text-[#8ad1ea]">Сопротивление</span>
-            <span className="text-[#b3bcc5] mx-2">против</span>
+            <span className="text-[#bcc5ce] mx-2">против</span>
             <span className="text-[#ee7b5c]">Тёмной стороны</span>
           </p>
         </div>
 
         {/* Mode Selection or Battle Setup */}
         {!showBattleSetup ? (
-          <div className="relative steel-plate rounded-[6px] p-4 sm:p-5 w-full max-w-sm space-y-3 text-left">
+          <div className="relative steel-plate rounded-[6px] p-4 sm:p-5 w-full space-y-3 text-left">
             <CornerRivets inset="sm" />
 
             {hasSavedGame && (
@@ -111,28 +125,36 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               className="w-full group cursor-pointer text-left transition-transform duration-150 hover:-translate-y-[1px] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4ade80]/80"
             >
               <span className="btn-chamfer block p-[1.5px] bg-gradient-to-b from-[#e4a67d] via-[#9e4724] to-[#3b190d] group-hover:from-[#f0ba94] group-hover:via-[#b8552d] group-hover:to-[#4a2011] transition-all">
-                <span className="btn-chamfer relative overflow-hidden p-3.5 bg-gradient-to-b from-[#312018] via-[#211613] to-[#140e0d] group-hover:from-[#3d261c] group-hover:via-[#291a16] group-hover:to-[#18100e] flex items-center justify-between gap-3 transition-colors">
+                <span className="btn-chamfer relative overflow-hidden p-3.5 bg-gradient-to-b from-[#312018] via-[#211613] to-[#140e0d] group-hover:from-[#3d261c] group-hover:via-[#291a16] group-hover:to-[#18100e] flex flex-col gap-2.5 transition-colors">
                   <span
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-x-3 top-0 h-px bg-[#f5ebe0]/22"
                   />
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 btn-chamfer-sm steel-recessed border-[#8a4527] flex items-center justify-center text-[#f09e6c] shrink-0">
-                      <MapIcon className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-display font-semibold text-base text-[#f6ece0] uppercase tracking-[0.08em]">
-                        Кампания
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 btn-chamfer-sm steel-recessed border-[#8a4527] flex items-center justify-center text-[#f09e6c] shrink-0">
+                        <MapIcon className="w-5 h-5" />
                       </div>
-                      <div className="text-[11px] text-[#c5b9aa] leading-snug">
-                        Карта этапов · Пройдено {campaignCompletedCount} из{' '}
-                        {campaignTotalStages}
+                      <div className="min-w-0">
+                        <div className="font-display font-semibold text-base text-[#f6ece0] uppercase tracking-[0.08em]">
+                          Кампания
+                        </div>
+                        <div className="text-xs text-[#cfc3b4] leading-snug">
+                          Пройдено этапов: {campaignCompletedCount} из{' '}
+                          {campaignTotalStages}
+                        </div>
                       </div>
                     </div>
+                    <span className="font-display text-xs text-[#f09e6c] font-semibold uppercase tracking-[0.1em] shrink-0 whitespace-nowrap">
+                      Карта →
+                    </span>
                   </div>
-                  <span className="font-display text-xs text-[#f09e6c] font-semibold uppercase tracking-[0.1em] shrink-0 whitespace-nowrap">
-                    Карта →
-                  </span>
+                  <div className="w-full h-1.5 rounded-[2px] bg-[#0e0a09] overflow-hidden border border-[#522a19]/70">
+                    <div
+                      style={{ width: `${campaignPct}%` }}
+                      className="h-full bg-gradient-to-r from-[#d97736] to-[#f4b17e] transition-all duration-300"
+                    />
+                  </div>
                 </span>
               </span>
             </button>
@@ -140,7 +162,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             {/* Mode 2: Битва */}
             <button
               type="button"
-              onClick={() => setShowBattleSetup(true)}
+              onClick={() => {
+                sound.playUiClick();
+                setShowBattleSetup(true);
+              }}
               className="w-full group cursor-pointer text-left transition-transform duration-150 hover:-translate-y-[1px] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#74c6e0]/80"
             >
               <span className="btn-chamfer block p-[1.5px] bg-gradient-to-b from-[#8bd2de] via-[#347c87] to-[#122e33] group-hover:from-[#a8e2ec] group-hover:via-[#4295a1] group-hover:to-[#183d44] transition-all">
@@ -155,10 +180,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                     </div>
                     <div className="min-w-0">
                       <div className="font-display font-semibold text-base text-[#eef8fb] uppercase tracking-[0.08em]">
-                        Битва
+                        Свободная битва
                       </div>
-                      <div className="text-[11px] text-[#a7bec7] leading-snug">
-                        Свободный бой · Бот или 2 игрока
+                      <div className="text-xs text-[#b0c6cf] leading-snug">
+                        Против ИИ или 2 игрока за одним экраном
                       </div>
                     </div>
                   </div>
@@ -169,7 +194,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </span>
             </button>
 
-            <div className="pt-1">
+            <div className="pt-1 grid grid-cols-2 gap-2.5">
+              <GameButton
+                variant="secondary"
+                size="md"
+                fullWidth
+                onClick={onOpenCardsCatalog}
+              >
+                <Layers className="w-4 h-4 text-[#f09e6c]" />
+                <span>Карты рас</span>
+              </GameButton>
+
               <GameButton
                 variant="secondary"
                 size="md"
@@ -177,13 +212,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 onClick={onOpenRules}
               >
                 <BookOpen className="w-4 h-4 text-[#8ad1ea]" />
-                <span>Правила игры</span>
+                <span>Правила</span>
               </GameButton>
             </div>
           </div>
         ) : (
           /* Battle Setup Screen — Bolted Gunmetal Command Panel */
-          <div className="relative w-full max-w-md p-5 rounded-[6px] steel-plate space-y-4 text-left">
+          <div className="relative w-full p-5 rounded-[6px] steel-plate space-y-4 text-left">
             <CornerRivets />
 
             <div className="flex items-center justify-between border-b border-[#323a44] pb-3">
@@ -193,7 +228,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               <GameButton
                 variant="secondary"
                 size="xs"
-                onClick={() => setShowBattleSetup(false)}
+                onClick={() => {
+                  sound.playUiClick();
+                  setShowBattleSetup(false);
+                }}
               >
                 ← Назад
               </GameButton>
@@ -201,13 +239,16 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
             {/* Side selection */}
             <div className="space-y-2">
-              <label className="text-[11px] font-semibold text-[#9aa4b0] uppercase tracking-[0.12em] block">
+              <label className="text-xs font-medium text-[#b2bcc7] block">
                 Сторона первого игрока
               </label>
               <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setSelectedSide('resistance')}
+                  onClick={() => {
+                    sound.playUiClick();
+                    setSelectedSide('resistance');
+                  }}
                   className="group cursor-pointer text-left transition-transform duration-150 hover:-translate-y-[1px] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#74c6e0]/80"
                 >
                   <span
@@ -236,8 +277,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                           Сопротивление
                         </span>
                       </div>
-                      <div className="text-[10px] leading-snug text-[#9ba5b0]">
-                        12 карт людей, техники и науки
+                      <div className="text-[11px] leading-snug text-[#a9b3be]">
+                        {resistanceCount} карт людей, техники и науки
                       </div>
                     </span>
                   </span>
@@ -245,7 +286,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setSelectedSide('dark_side')}
+                  onClick={() => {
+                    sound.playUiClick();
+                    setSelectedSide('dark_side');
+                  }}
                   className="group cursor-pointer text-left transition-transform duration-150 hover:-translate-y-[1px] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#df6d52]/80"
                 >
                   <span
@@ -274,8 +318,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                           Тёмная сторона
                         </span>
                       </div>
-                      <div className="text-[10px] leading-snug text-[#9ba5b0]">
-                        12 карт созданий, магии и бедствий
+                      <div className="text-[11px] leading-snug text-[#a9b3be]">
+                        {darkSideCount} карт созданий, магии и бедствий
                       </div>
                     </span>
                   </span>
@@ -285,7 +329,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
             {/* Game mode choice */}
             <div className="space-y-2.5 pt-0.5">
-              <label className="text-[11px] font-semibold text-[#9aa4b0] uppercase tracking-[0.12em] block">
+              <label className="text-xs font-medium text-[#b2bcc7] block">
                 Формат битвы
               </label>
 
@@ -308,8 +352,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                         <div className="font-display font-semibold text-sm text-[#ece2d3] uppercase tracking-[0.06em] group-hover:text-[#f6ece0]">
                           Игра против бота
                         </div>
-                        <div className="text-[11px] text-[#9ba5b0]">
-                          Быстрая тактическая партия против ИИ
+                        <div className="text-xs text-[#a9b3be]">
+                          Тактическая партия против ИИ
                         </div>
                       </div>
                     </div>
@@ -339,8 +383,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                         <div className="font-display font-semibold text-sm text-[#ece2d3] uppercase tracking-[0.06em] group-hover:text-[#f7e9e7]">
                           Два игрока за одним экраном
                         </div>
-                        <div className="text-[11px] text-[#9ba5b0]">
-                          Скрытый выбор при передаче устройства (Hotseat)
+                        <div className="text-xs text-[#a9b3be]">
+                          Скрытый выбор при передаче устройства
                         </div>
                       </div>
                     </div>
@@ -354,10 +398,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           </div>
         )}
 
-        {/* Footer info */}
-        <div className="mt-7 px-3.5 py-1.5 rounded-[4px] bg-[#090c11]/55 backdrop-blur-[2px] text-[11px] text-[#e1e6ec] drop-shadow-[0_1px_6px_rgba(0,0,0,0.98)] space-y-0.5">
-          <div>Цель: истощить руку противника не более чем за 10 ходов.</div>
-          <div className="text-[#b8c2cc]">Прогресс кампании и текущей партии сохраняется автоматически.</div>
+        {/* Clean Unboxed Footer Info */}
+        <div className="mt-5 text-xs text-[#d6dee7] drop-shadow-[0_2px_8px_rgba(0,0,0,0.98)] space-y-1 max-w-sm">
+          <div>
+            Истощите руку противника или сохраните больше карт к концу 10-го раунда.
+          </div>
+          <div className="text-[#a5b1be]">
+            Прогресс кампании и партии сохраняется автоматически.
+          </div>
         </div>
       </div>
     </div>

@@ -4,11 +4,17 @@ import { CardDefinition, CardType, CardSide } from '../types/game';
 import armyImg from '../assets/cards/Resistance/army.png';
 import artilleryImg from '../assets/cards/Resistance/artillery.png';
 import battleChurchImg from '../assets/cards/Resistance/battle_church.png';
+import callReservesImg from '../assets/cards/Resistance/call_reserves.png';
+import coldCalculationImg from '../assets/cards/Resistance/cold_calculation.png';
+import droneSquadImg from '../assets/cards/Resistance/drone_squad.png';
 import engineerImg from '../assets/cards/Resistance/engineer.png';
 import evacuationImg from '../assets/cards/Resistance/evacuation.png';
+import medicImg from '../assets/cards/Resistance/medic.png';
 import policemanImg from '../assets/cards/Resistance/policeman.png';
+import prayerImg from '../assets/cards/Resistance/prayer.png';
 import priestImg from '../assets/cards/Resistance/priest.png';
 import progressiveScienceImg from '../assets/cards/Resistance/progressive_science.png';
+import reservesImg from '../assets/cards/Resistance/reserves.png';
 import scientistImg from '../assets/cards/Resistance/scientist.png';
 import seerImg from '../assets/cards/Resistance/seer.png';
 import sniperImg from '../assets/cards/Resistance/sniper.png';
@@ -17,12 +23,19 @@ import warRobotsImg from '../assets/cards/Resistance/war_robots.png';
 
 // Dark Side card artwork
 import abnormalLightningImg from '../assets/cards/Dark_Side/abnormal_lightning.png';
+import ballLightningImg from '../assets/cards/Dark_Side/ball_lightning.png';
+import conjurerImg from '../assets/cards/Dark_Side/conjurer.png';
+import darkSapperImg from '../assets/cards/Dark_Side/dark_sapper.png';
 import demonImg from '../assets/cards/Dark_Side/demon.png';
+import evilSpiritImg from '../assets/cards/Dark_Side/evil_spirit.png';
+import gargoyleImg from '../assets/cards/Dark_Side/gargoyle.png';
 import ghostImg from '../assets/cards/Dark_Side/ghost.png';
 import hiddenVirusImg from '../assets/cards/Dark_Side/hidden_virus.png';
+import impImg from '../assets/cards/Dark_Side/imp.png';
 import naturalDisasterImg from '../assets/cards/Dark_Side/natural_disaster.png';
 import necromancerImg from '../assets/cards/Dark_Side/necromancer.png';
 import oldWizardImg from '../assets/cards/Dark_Side/old_wizard.png';
+import parasiteImg from '../assets/cards/Dark_Side/parasite.png';
 import plagueImg from '../assets/cards/Dark_Side/plague.png';
 import rabidDogsImg from '../assets/cards/Dark_Side/rabid_dogs.png';
 import terribleDiseaseImg from '../assets/cards/Dark_Side/terrible_disease.png';
@@ -41,7 +54,7 @@ export const CARD_TYPE_NAMES: Record<CardType, string> = {
 
 export const ALL_CARDS: CardDefinition[] = [
   // -------------------------------------------------------------
-  // СОПРОТИВЛЕНИЕ (Resistance) - 12 карт в колоде + 1 скрытое заклинание
+  // СОПРОТИВЛЕНИЕ (Resistance) - 17 карт в колоде + 2 скрытые карты
   // -------------------------------------------------------------
   {
     id: 'army',
@@ -337,6 +350,7 @@ export const ALL_CARDS: CardDefinition[] = [
     image: artilleryImg,
     isSingleUse: true,
     isHiddenSpell: true,
+    hiddenSummonNote: 'Скрытая · призывается Артиллеристом',
     effects: [
       {
         action: 'destroy',
@@ -358,9 +372,143 @@ export const ALL_CARDS: CardDefinition[] = [
       },
     ],
   },
+  {
+    id: 'drone_squad',
+    name: 'Беспилотный отряд',
+    side: 'resistance',
+    type: 'magic',
+    rank: 0,
+    initiative: 188,
+    description: 'Уничтожает 1 существо противника с рангом 5 и ниже. Одноразовая.',
+    icon: 'drone_squad',
+    image: droneSquadImg,
+    isSingleUse: true,
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['creature'],
+          maxRank: 5,
+          limit: 1,
+          priority: 'highest_rank',
+        },
+        description: 'Уничтожает 1 существо противника с рангом ≤ 5',
+      },
+    ],
+  },
+  {
+    id: 'call_reserves',
+    name: 'Вызвать резервы',
+    side: 'resistance',
+    type: 'magic',
+    rank: 0,
+    initiative: 31,
+    description: 'Вызывает отряд «Резервы» на поле боя, который сразу вступает в бой. Одноразовая.',
+    icon: 'call_reserves',
+    image: callReservesImg,
+    isSingleUse: true,
+    effects: [
+      {
+        action: 'summon',
+        summonCardIds: ['reserves'],
+        description: 'Вызывает отряд «Резервы» на поле боя',
+      },
+    ],
+  },
+  {
+    id: 'cold_calculation',
+    name: 'Холодный расчёт',
+    side: 'resistance',
+    type: 'magic',
+    rank: 0,
+    initiative: 169,
+    description: 'Может подменить себя на любое существо или технику из руки, а может ничего не делать. Одноразовая.',
+    icon: 'cold_calculation',
+    image: coldCalculationImg,
+    isSingleUse: true,
+    effects: [
+      {
+        action: 'replace',
+        allowSelfReplace: true,
+        replaceFilter: {
+          types: ['creature', 'technology'],
+        },
+        description: 'Подменяет себя на любое существо или технику из руки',
+      },
+    ],
+  },
+  {
+    id: 'medic',
+    name: 'Медик',
+    side: 'resistance',
+    type: 'creature',
+    rank: 2,
+    initiative: 77,
+    description: 'Реанимирует случайное своё существо, которое уничтожено во время текущего боя.',
+    icon: 'medic',
+    image: medicImg,
+    effects: [
+      {
+        action: 'reanimate_battle',
+        target: {
+          side: 'ally',
+          types: ['creature'],
+        },
+        description: 'Реанимирует случайное уничтоженное в текущем бою союзное существо',
+      },
+    ],
+  },
+  {
+    id: 'prayer',
+    name: 'Молитва',
+    side: 'resistance',
+    type: 'magic',
+    rank: 0,
+    initiative: 107,
+    description: 'Уничтожает всех бесплотных существ противника. Одноразовая.',
+    icon: 'prayer',
+    image: prayerImg,
+    isSingleUse: true,
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['incorporeal'],
+        },
+        description: 'Уничтожает всех бесплотных существ противника',
+      },
+    ],
+  },
+  // Скрытое существо Сопротивления (не сдаётся в руку, вызывается картой «Вызвать резервы»)
+  {
+    id: 'reserves',
+    name: 'Резервы',
+    side: 'resistance',
+    type: 'creature',
+    rank: 5,
+    initiative: 18,
+    description: 'Уничтожает существ противника с рангом 5 и ниже. Нет в стартовой руке; после вызова, если выжила на поле боя, кладётся в руку и может быть сыграна снова.',
+    icon: 'reserves',
+    image: reservesImg,
+    isHiddenSpell: true,
+    hiddenSummonNote: 'Скрытая · вызывается картой «Вызвать резервы»',
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['creature'],
+          maxRank: 5,
+        },
+        description: 'Уничтожает существ противника с рангом ≤ 5',
+      },
+    ],
+  },
 
   // -------------------------------------------------------------
-  // ТЁМНАЯ СТОРОНА (Dark Side) - 12 карт
+  // ТЁМНАЯ СТОРОНА (Dark Side) - 17 карт в колоде + 2 скрытые карты
   // -------------------------------------------------------------
   {
     id: 'abnormal_lightning',
@@ -490,19 +638,19 @@ export const ALL_CARDS: CardDefinition[] = [
     type: 'creature',
     rank: 2,
     initiative: 80,
-    description: 'Уничтожает себя и возвращает выбранное существо (ранг ≤ 6) из сброса в руку. Без целей не погибает.',
+    description: 'Возвращает выбранное существо (ранг ≤ 6) из сброса в руку. Не погибает после воскрешения.',
     icon: 'necromancer',
     image: necromancerImg,
     effects: [
       {
         action: 'revive',
-        destroySelf: true,
+        destroySelf: false,
         reviveFilter: {
           side: 'ally',
           types: ['creature'],
           maxRank: 6,
         },
-        description: 'Уничтожает себя и воскрешает выбранное существо с рангом ≤ 6 из сброса в руку',
+        description: 'Воскрешает выбранное существо с рангом ≤ 6 из сброса в руку, оставаясь в живых',
       },
     ],
   },
@@ -646,11 +794,178 @@ export const ALL_CARDS: CardDefinition[] = [
       },
     ],
   },
+  {
+    id: 'parasite',
+    name: 'Паразит',
+    side: 'dark_side',
+    type: 'creature',
+    rank: 1,
+    initiative: 301,
+    description: 'Блокирует существо противника с самой большой инициативой.',
+    icon: 'parasite',
+    image: parasiteImg,
+    effects: [
+      {
+        action: 'cancel_ability',
+        target: {
+          side: 'enemy',
+          types: ['creature'],
+          limit: 1,
+          priority: 'highest_initiative',
+        },
+        description: 'Блокирует существо противника с самой большой инициативой',
+      },
+    ],
+  },
+  {
+    id: 'conjurer',
+    name: 'Заклинатель',
+    side: 'dark_side',
+    type: 'creature',
+    rank: 4,
+    initiative: 103,
+    description: 'Призывает на поле боя Беса или Злого духа вместо себя. После кладётся в руку.',
+    icon: 'conjurer',
+    image: conjurerImg,
+    effects: [
+      {
+        action: 'summon',
+        summonCardIds: ['imp', 'evil_spirit'],
+        returnSelfToHand: true,
+        description: 'Призывает на поле боя Беса или Злого духа и возвращается в руку',
+      },
+    ],
+  },
+  {
+    id: 'dark_sapper',
+    name: 'Тёмный подрывник',
+    side: 'dark_side',
+    type: 'creature',
+    rank: 2,
+    initiative: 82,
+    description: 'Уничтожает одну технику противника любого ранга.',
+    icon: 'dark_sapper',
+    image: darkSapperImg,
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['technology'],
+          limit: 1,
+          priority: 'highest_rank',
+        },
+        description: 'Уничтожает 1 технику противника любого ранга',
+      },
+    ],
+  },
+  {
+    id: 'ball_lightning',
+    name: 'Шаровая молния',
+    side: 'dark_side',
+    type: 'magic',
+    rank: 0,
+    initiative: 18,
+    description: 'Уничтожает одну технику противника любого ранга. Одноразовая.',
+    icon: 'ball_lightning',
+    image: ballLightningImg,
+    isSingleUse: true,
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['technology'],
+          limit: 1,
+          priority: 'highest_rank',
+        },
+        description: 'Уничтожает 1 технику противника любого ранга',
+      },
+    ],
+  },
+  {
+    id: 'gargoyle',
+    name: 'Гаргулья',
+    side: 'dark_side',
+    type: 'creature',
+    rank: 5,
+    initiative: 286,
+    description: 'Уничтожает одно существо противника с рангом 4 или ниже.',
+    icon: 'gargoyle',
+    image: gargoyleImg,
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['creature'],
+          maxRank: 4,
+          limit: 1,
+          priority: 'highest_rank',
+        },
+        description: 'Уничтожает 1 существо противника с рангом ≤ 4',
+      },
+    ],
+  },
+  // Скрытые карты Тёмной стороны (не сдаются в руку, призываются Заклинателем)
+  {
+    id: 'imp',
+    name: 'Бес',
+    side: 'dark_side',
+    type: 'creature',
+    rank: 2,
+    initiative: 74,
+    description: 'Уничтожает всех существ противника с рангом 3 и ниже. Изначально скрыт; после призыва Заклинателем участвует в битве и, если выжил, возвращается в руку.',
+    icon: 'imp',
+    image: impImg,
+    isHiddenSpell: true,
+    hiddenSummonNote: 'Скрытая · призывается Заклинателем',
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['creature'],
+          maxRank: 3,
+        },
+        description: 'Уничтожает существ противника с рангом ≤ 3',
+      },
+    ],
+  },
+  {
+    id: 'evil_spirit',
+    name: 'Злой дух',
+    side: 'dark_side',
+    type: 'incorporeal',
+    rank: 0,
+    initiative: 34,
+    description: 'Уничтожает всех существ противника с рангом 2 и ниже. Изначально скрыт; после призыва Заклинателем участвует в битве и, если выжил, возвращается в руку.',
+    icon: 'evil_spirit',
+    image: evilSpiritImg,
+    isHiddenSpell: true,
+    hiddenSummonNote: 'Скрытая · призывается Заклинателем',
+    effects: [
+      {
+        action: 'destroy',
+        target: {
+          side: 'enemy',
+          types: ['creature'],
+          maxRank: 2,
+        },
+        description: 'Уничтожает существ противника с рангом ≤ 2',
+      },
+    ],
+  },
 ];
 
 export function getCardsBySide(side: 'resistance' | 'dark_side'): CardDefinition[] {
   // Returns starting hand cards (excluding hidden spells)
   return ALL_CARDS.filter((c) => c.side === side && !c.isHiddenSpell);
+}
+
+export function getAllCardsBySide(side: 'resistance' | 'dark_side'): CardDefinition[] {
+  // Returns all cards for a faction including hidden summoned spells (for encyclopedia)
+  return ALL_CARDS.filter((c) => c.side === side);
 }
 
 export function getCardById(id: string): CardDefinition | undefined {
