@@ -8,7 +8,27 @@
 
 **https://github.com/ilya6300/confrontation_cards_game**
 
-Ветка по умолчанию: `main`. Дополнительные ветки или GitHub Pages не требуются.
+Ветка по умолчанию: `main`.
+
+### GitHub Pages (демо без сервера)
+
+Статическая сборка выкладывается через GitHub Actions при push в `main`.
+
+**Сайт:** https://ilya6300.github.io/confrontation_cards_game/
+
+Первый раз в репозитории: **Settings → Pages → Build and deployment → Source: GitHub Actions**.  
+На бесплатном плане репозиторий должен быть **public**, иначе Pages не включится.
+
+Локальная проверка той же сборки:
+
+```bash
+npm run build:pages
+# PowerShell:
+$env:VITE_BASE_PATH="/confrontation_cards_game/"; npm run build:pages
+npm run preview
+```
+
+На Pages **нет** Express и `/api/tts` — игра работает, озвучка кампании недоступна. Полная версия: `npm run build` + `npm start` на своём сервере.
 
 После изменений:
 
